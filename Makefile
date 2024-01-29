@@ -24,10 +24,10 @@ dist/.git:
 	git worktree add dist dist
 
 deploy:
-	git commit -a -m 'deploy'
+	[[ -z "$(shell git status --porcelain)" ]]
 	git push origin main
 	git -C dist add .
-	git -C dist commit -m 'deploy'
+	git -C dist commit -m 'deploy' || true
 	git push origin dist
 
 v86:
