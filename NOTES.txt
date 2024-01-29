@@ -1,0 +1,23 @@
+- build custom linux image
+  - built-in apt or nix package manager
+  - auto-installing command-not-found handler
+  - https://github.com/Darin755/browser-buildroot
+- pivot_root to overlay with 9fs in javascript land
+  - https://unix.stackexchange.com/questions/554767/which-file-should-i-modify-to-mount-a-user-overlay-at-boot-time
+  - persist in indexeddb
+- novnc or xpra-html5 UI
+- Clickable links for xtemrjs
+  - https://stackoverflow.com/questions/64759060/how-to-create-links-in-xterm-js
+- landing page menu
+  - about
+  - github link
+  - licenses and thank yous
+  - boot
+  - login
+  - networking
+- replace websocket proxy with in-browser smoltcp
+  - capture all HTTP requests, convert to javascript `fetch` https://github.com/blechschmidt/tun2proxy
+  - re-write HTTPS with new CA https://git.m-labs.hk/renet/SaiTLS
+  - plug in to UI client
+- improve fonts and looks
+- SEO

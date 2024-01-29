@@ -1,3 +1,6 @@
 [submodule "v86"]
 	path = vendor/v86
 	url = https://github.com/copy/v86
+[submodule "vendor/buildroot"]
+	path = vendor/buildroot
+	url = http://git.buildroot.net/buildroot/
