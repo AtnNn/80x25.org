@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "license": "UNLICENSED",
+  "dependencies": {
+    "html-minifier": "^4.0.0",
+    "uglifyjs": "^2.4.11"
+  }
+}
