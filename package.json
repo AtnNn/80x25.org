@@ -1,8 +1,10 @@
 {
   "private": true,
   "license": "UNLICENSED",
+  "type": "module",
   "dependencies": {
-    "html-minifier": "^4.0.0",
-    "uglifyjs": "^2.4.11"
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "vite": "^5.0.12",
+    "xterm": "^5.3.0"
   }
 }

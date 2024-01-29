@@ -1,4 +1,5 @@
 static_files := *.html:*.js:*.ico:*.png:*.json:CNAME:.nojekyll
+
 static := $(shell find static -name '$(subst :,' -or -name ',$(static_files))')
 
 jsbin := node_modules/.bin
@@ -16,7 +17,10 @@ build: v86 static
 
 static: $(patsubst static/%,dist/%,$(static))
 
-init: npm-deps dist/.git
+init: submodules npm-deps dist/.git
+
+submodules:
+	git submodule update --init
 
 npm-deps: package.json package-lock.json
 	npm install
@@ -31,21 +35,29 @@ deploy:
 	git -C dist commit -m 'deploy' || true
 	git push origin dist
 
-v86:
+vendor/v86: submodules
+
+v86-run: vendor/v86
 	docker build -f vendor/v86/tools/docker/exec/Dockerfile -t v86 vendor/v86
 	docker rm v86 || true
 	docker create --name v86 v86
-	rm -rf dist/v86
-	mkdir dist/v86
-	docker cp v86:/v86/build dist/v86/build
-	docker cp v86:/v86/bios dist/v86/bios
-	docker rm v86
 
-dist/%.html: static/%.html
-	$(jsbin)/html-minifier -c html-minifier.conf $< -o $@
+v86: gen/seabios.bin gen/libv86.js gen/v86.wasm
 
-dist/%.js: static/%.js
-	$(jsbin)/uglifyjs $< > $@
+gen/libv86.js: gen/. v86-run
+	docker cp v86:/v86/build/libv86.js $@
 
-dist/%: static/%
-	cp $< $@
+gen/v86.wasm: gen/. v86-run
+	docker cp v86:/v86/build/v86.wasm $@
+
+gen/seabios.bin: vendor/v86 gen/.
+	cp vendor/v86/bios/seabios.bin $@
+
+dist: v86
+	$(jsbin)/vite build
+
+serve: v86
+	$(jsbin)/vite preview
+
+%/.:
+	mkdir -p $@
