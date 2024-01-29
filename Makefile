@@ -1,4 +1,5 @@
-static := $(shell find static -name '*.html' -or -name '*.js' -or -name '*.ico' -or -name '*.png' -or -name '*.json')
+static_files := *.html:*.js:*.ico:*.png:*.json:CNAME:.nojekyll
+static := $(shell find static -name '$(subst :,' -or -name ',$(static_files))')
 
 jsbin := node_modules/.bin
 
@@ -24,7 +25,7 @@ dist/.git:
 	git worktree add dist dist
 
 deploy:
-	[[ -z "$(shell git status --porcelain)" ]]
+	git diff --stat HEAD --exit-code
 	git push origin main
 	git -C dist add .
 	git -C dist commit -m 'deploy' || true
