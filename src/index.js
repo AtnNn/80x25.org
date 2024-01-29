@@ -5,7 +5,13 @@ import 'xterm/css/xterm.css'
 import './style.css'
 import { Terminal } from 'xterm'
 
-const log = function(x){ /* console.log(x) */ }
+let console;
+function resizeTerm() {
+    const scalex = window.innerWidth / console.offsetWidth
+    const scaley = window.innerHeight / console.offsetHeight
+    const scale = Math.min(scalex, scaley) * 0.98;
+    console.style.transform = `scale(${scale})`
+}
 
 const vm = new V86({
     wasm_path: v86wasm,
@@ -19,22 +25,24 @@ const vm = new V86({
 
 window.vm = vm
 
-let term = new Terminal({
+const term = new Terminal({
     cursorBlink: true,
 });
 
 window.term = term
 
-const console = document.getElementById('console')
+console = document.getElementById('console')
 console.innerHTML = ''
 term.resize(80, 25)
 term.open(console)
 term.write('Loading...\r\n')
+term.onRender(function(){
+    resizeTerm()
+    window.onresize = resizeTerm()
+})
 
 vm.add_listener("emulator-ready", function() {
-    log('emulator-ready')
     term.onData(function(data) {
-        log({termData: data})
         for(let i = 0; i < data.length; i++) {
             vm.bus.send("serial0-input", data.charCodeAt(i))
         }
@@ -42,6 +50,5 @@ vm.add_listener("emulator-ready", function() {
 })
 
 vm.add_listener("serial0-output-byte", function(byte) {
-    log({serialOuput: byte})
     term.write(Uint8Array.of(byte));
 });
