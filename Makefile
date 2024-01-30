@@ -43,7 +43,7 @@ gen/.v86-run: | vendor/v86/.
 	docker create --name v86 v86
 	touch $@
 
-dist-deps := gen/seabios.bin gen/libv86.js gen/v86.wasm
+dist-deps := gen/seabios.bin gen/libv86.js gen/v86.wasm src/index.js src/style.css
 
 gen/libv86.js: gen/.v86-run | gen/.
 	docker cp v86:/v86/build/libv86.js $@

@@ -50,6 +50,17 @@ vm.add_listener("emulator-ready", function() {
     });
 })
 
+let last = 0;
+let init = false;
 vm.add_listener("serial0-output-byte", function(byte) {
+    if (!init && last === 126 && byte === 37) {
+        // ~% prompt
+        init = true
+        for(const c of "PS1='\\W# '\n") {
+            vm.bus.send("serial0-input", c.charCodeAt(0))
+        }
+        vm.bus.send("serial0-input", 12) // ^L
+    }
+    last = byte;
     term.write(Uint8Array.of(byte));
 });
