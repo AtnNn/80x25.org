@@ -36,6 +36,7 @@ console.innerHTML = ''
 term.resize(80, 25)
 term.open(console)
 term.write('Loading...\r\n')
+
 term.onRender(function(){
     resizeTerm()
     window.onresize = resizeTerm()

@@ -19,8 +19,7 @@ static: $(patsubst static/%,dist/%,$(static))
 
 init: submodules npm-deps dist/.git
 
-submodules:
-	git submodule update --init
+submodules: vendor/v86/.
 
 npm-deps: package.json package-lock.json
 	npm install
@@ -35,28 +34,32 @@ deploy:
 	git -C dist commit -m 'deploy' || true
 	git push origin dist
 
-vendor/v86: submodules
+vendor/%/.:
+	git submodule update --init vendor/$*
 
-v86-run: vendor/v86
+gen/.v86-run: | vendor/v86/.
 	docker build -f vendor/v86/tools/docker/exec/Dockerfile -t v86 vendor/v86
 	docker rm v86 || true
 	docker create --name v86 v86
+	touch $@
 
-v86: gen/seabios.bin gen/libv86.js gen/v86.wasm
+dist-deps := gen/seabios.bin gen/libv86.js gen/v86.wasm
 
-gen/libv86.js: gen/. v86-run
+gen/libv86.js: gen/.v86-run | gen/.
 	docker cp v86:/v86/build/libv86.js $@
+	touch $@
 
-gen/v86.wasm: gen/. v86-run
+gen/v86.wasm: gen/.v86-run | gen/.
 	docker cp v86:/v86/build/v86.wasm $@
+	touch $@
 
-gen/seabios.bin: vendor/v86 gen/.
+gen/seabios.bin: vendor/v86/. | gen/.
 	cp vendor/v86/bios/seabios.bin $@
 
-dist: v86
+dist: $(dist-deps)
 	$(jsbin)/vite build
 
-serve: v86
+serve: $(dist-deps)
 	$(jsbin)/vite preview
 
 %/.:
