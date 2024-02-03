@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = http://git.buildroot.net/buildroot
+	branch = master
+	commit = dbe037dc9998155373b0a96687c55982f9c1a536
+	parent = 3781cfcc5c3066cf68a18010b4310cdf226ea374
+	method = merge
+	cmdver = 0.4.6
