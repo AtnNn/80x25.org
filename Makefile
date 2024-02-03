@@ -17,9 +17,7 @@ build: v86 static
 
 static: $(patsubst static/%,dist/%,$(static))
 
-init: submodules npm-deps dist/.git
-
-submodules: vendor/v86/.
+init: npm-deps dist/.git
 
 npm-deps: package.json package-lock.json
 	npm install
@@ -33,9 +31,6 @@ deploy:
 	git -C dist add .
 	git -C dist commit -m 'deploy' || true
 	git push origin dist
-
-vendor/%/.:
-	git submodule update --init vendor/$*
 
 gen/.v86-run: | vendor/v86/.
 	docker build -f vendor/v86/tools/docker/exec/Dockerfile -t v86 vendor/v86
