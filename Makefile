@@ -10,10 +10,10 @@ default:
 
 rebuild:
 	git -C dist clean -fxd
-	git -C dist rm -rf .
+	git -C dist rm -rf . || true
 	$(MAKE) build
 
-build: v86 static
+build: dist static
 
 static: $(patsubst static/%,dist/%,$(static))
 
