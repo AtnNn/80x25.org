@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = https://github.com/Darin755/browser-buildroot
+	branch = master
+	commit = 9666110e880265ee6ad570c45d7a318d51e987ff
+	parent = 1956c8eef3cdb6c728433713c1e3d3668e532f12
+	method = merge
+	cmdver = 0.4.6
