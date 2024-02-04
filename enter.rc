@@ -6,7 +6,7 @@ make init
 
 PATH="${ATX25_ROOT}/gen/nix/deps/bin:$PATH"
 
-CPATH="${ATX25_ROOT}/gen/nix/deps/include:${CPATH:-}"
-LIBRARY_PATH="${ATX25_ROOT}/gen/nix/deps/lib:${LIBRARY_PATH:-}"
+CPATH="${ATX25_ROOT}/gen/nix/deps/include${CPATH:+:}${CPATH:-}"
+LIBRARY_PATH="${ATX25_ROOT}/gen/nix/deps/lib${LIBRARY_PATH:+:}${LIBRARY_PATH:-}"
 
 export CPATH LIBRARY_PATH
