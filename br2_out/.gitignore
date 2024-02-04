@@ -1,3 +1,6 @@
 /build
 /Makefile
 /.br2-*
+/..config.tmp
+/.config.old
+/host

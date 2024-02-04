@@ -64,3 +64,6 @@ nix-deps: gen/nix/deps
 
 gen/nix/deps: deps.nix | gen/nix/.
 	nix-build deps.nix --out-link $@
+
+linux-image: $(shell git ls-files br2_out)
+	$(MAKE) -C br2_out

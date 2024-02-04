@@ -61,9 +61,8 @@ check_prog_host "which"
 # Verify that sed is installed
 check_prog_host "sed"
 
-# 'file' must be present and must be exactly /usr/bin/file,
-# otherwise libtool fails in incomprehensible ways.
-check_prog_host "/usr/bin/file"
+# 'file' must be present
+check_prog_host "file"
 
 # Check make
 MAKE=$(which make 2> /dev/null)
