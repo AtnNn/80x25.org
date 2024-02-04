@@ -1,1 +1,12 @@
+ATX25_ROOT=$(cd "$(dirname "$BASH_SOURCE")" && pwd)
+
+make init
+
 . vendor/git-subrepo/.rc
+
+PATH="${ATX25_ROOT}/gen/nix/deps/bin:$PATH"
+
+CPATH="${ATX25_ROOT}/gen/nix/deps/include:${CPATH:-}"
+LIBRARY_PATH="${ATX25_ROOT}/gen/nix/deps/lib:${LIBRARY_PATH:-}"
+
+export CPATH LIBRARY_PATH

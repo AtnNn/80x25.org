@@ -17,7 +17,7 @@ build: dist static
 
 static: $(patsubst static/%,dist/%,$(static))
 
-init: npm-deps dist/.git
+init: npm-deps dist/.git nix-deps
 
 npm-deps: package.json package-lock.json
 	npm install
@@ -59,3 +59,8 @@ serve: $(dist-deps)
 
 %/.:
 	mkdir -p $@
+
+nix-deps: gen/nix/deps
+
+gen/nix/deps: deps.nix | gen/nix/.
+	nix-build deps.nix --out-link $@
