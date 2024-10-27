@@ -1,7 +1,5 @@
 ATX25_ROOT=$(cd "$(dirname "$BASH_SOURCE")" && pwd)
 
-make init
-
 . vendor/git-subrepo/.rc
 
 PATH="${ATX25_ROOT}/gen/nix/deps/bin:$PATH"
