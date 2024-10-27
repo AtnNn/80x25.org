@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = https://github.com/smoltcp-rs/smoltcp
+	branch = main
+	commit = e9b66eadaeacef758ebc4a12378f8d2162144cf4
+	parent = b4a70fd691aa02429fc02646699d4972355e7a9a
+	method = merge
+	cmdver = 0.4.6
