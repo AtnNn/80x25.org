@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = https://github.com/leaningtech/webvm
+	branch = main
+	commit = 058196872626bbd5e1d0fb2902bfb6429b587791
+	parent = a24bb7f4ba967301d64057c59f8117eb1615860e
+	method = merge
+	cmdver = 0.4.6
