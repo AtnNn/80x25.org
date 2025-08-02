@@ -1,6 +1,7 @@
-# From https://wpewebkit.org/releases/libwpe-1.14.2.tar.xz.sums
-sha1  70a2b894af2b50d7082260158a89524974a480f3  libwpe-1.14.2.tar.xz
-sha256  8ae38022c50cb340c96fdbee1217f1e46ab57fbc1c8ba98142565abbedbe22ef  libwpe-1.14.2.tar.xz
+# From https://wpewebkit.org/releases/libwpe-1.16.2.tar.xz.sums
+md5  689306c9baf6f8d6844146a5c84fc932  libwpe-1.16.2.tar.xz
+sha1  499b62ddd3c1becaffc3b344ff5131c37d527144  libwpe-1.16.2.tar.xz
+sha256  960bdd11c3f2cf5bd91569603ed6d2aa42fd4000ed7cac930a804eac367888d7  libwpe-1.16.2.tar.xz
 
 # Hashes for license files:
 sha256  35bef295cedbbf179eaee14328002587a0e7dc08ebf3f15ea080a6f2815f0d7b  COPYING

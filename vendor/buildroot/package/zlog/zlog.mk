@@ -4,11 +4,11 @@
 #
 ################################################################################
 
-ZLOG_VERSION = 1.2.17
+ZLOG_VERSION = 1.2.18
 ZLOG_SITE = $(call github,HardySimpson,zlog,$(ZLOG_VERSION))
 ZLOG_LICENSE = Apache-2.0
 ZLOG_LICENSE_FILES = LICENSE
-ZLOG_CPE_ID_VENDOR = zlog_project
+ZLOG_CPE_ID_VALID = YES
 ZLOG_INSTALL_STAGING = YES
 
 define ZLOG_BUILD_CMDS

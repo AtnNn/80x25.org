@@ -1,7 +1,7 @@
-# From https://wpewebkit.org/releases/cog-0.18.2.tar.xz.sums
-md5  7fbfc2e19304132be0d73f5e5512151c  cog-0.18.2.tar.xz
-sha1  045294f7fa878db86e4b8a617ee4ac056a71cb75  cog-0.18.2.tar.xz
-sha256  3c4237cff6323b8c3eaf52c6f3f6415b898a22c0127c6c396c1eaa6eef46c279  cog-0.18.2.tar.xz
+# From https://wpewebkit.org/releases/cog-0.18.5.tar.xz.sums
+md5  3df784f9930353ac4cb2d95fdd56e21d  cog-0.18.5.tar.xz
+sha1  49a79797fa4d0aa41680095161df7cdb155f8fe9  cog-0.18.5.tar.xz
+sha256  0ede9d09ab635ac519beec0543378e3fc51b56561a5fb7aa9c0cbca54c31b97c  cog-0.18.5.tar.xz
 
 # Hashes for license files:
 sha256  e6c42d93c68b292bcccf6d2ec3e13da85df90b718ba27c2c2a01053a9d009252  COPYING

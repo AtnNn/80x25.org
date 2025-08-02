@@ -3,17 +3,17 @@ config BR2_PACKAGE_MICROPYTHON
 	depends on BR2_TOOLCHAIN_HAS_THREADS
 	depends on !BR2_STATIC_LIBS
 	help
-	  Micro Python is a lean and fast implementation of the Python
+	  MicroPython is a lean and fast implementation of the Python
 	  3 programming language that is optimised to run on a
 	  microcontroller.
 
-	  http://micropython.org
+	  https://micropython.org
 
 if BR2_PACKAGE_MICROPYTHON
 
 config BR2_PACKAGE_MICROPYTHON_LIB
 	bool "micropython-lib"
-	select BR2_PACKAGE_PCRE # runtime
+	select BR2_PACKAGE_PCRE2 # runtime
 	help
 	  Core Python libraries ported to MicroPython.
 

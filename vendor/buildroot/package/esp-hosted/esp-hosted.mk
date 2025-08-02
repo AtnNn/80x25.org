@@ -4,11 +4,12 @@
 #
 ################################################################################
 
-ESP_HOSTED_VERSION = ce3c50a33fa4bc562a1b6cbcee292c1ae0b0a404
-ESP_HOSTED_SITE = $(call github,espressif,esp-hosted,$(ESP_HOSTED_VERSION))
+ESP_HOSTED_VERSION = 1.0.4.0.0
+ESP_HOSTED_SITE = $(call github,espressif,esp-hosted,release/ng-v$(ESP_HOSTED_VERSION))
+ESP_HOSTED_SOURCE = ng-v$(ESP_HOSTED_VERSION).tar.gz
 ESP_HOSTED_DEPENDENCIES = linux
 ESP_HOSTED_LICENSE = GPL-2.0
-ESP_HOSTED_LICENSE_FILE = LICENSE
+ESP_HOSTED_LICENSE_FILES = esp_hosted_ng/host/LICENSE
 ESP_HOSTED_MODULE_SUBDIRS = esp_hosted_ng/host
 
 define ESP_HOSTED_LINUX_CONFIG_FIXUPS
@@ -26,6 +27,12 @@ ifeq ($(BR2_PACKAGE_ESP_HOSTED_SPI),y)
 ESP_HOSTED_MODULE_MAKE_OPTS = target=spi
 else
 ESP_HOSTED_MODULE_MAKE_OPTS = target=sdio
+endif
+
+ifeq ($(BR2_PACKAGE_ESP_HOSTED_TARGET_ESP32),y)
+ESP_HOSTED_MODULE_MAKE_OPTS += ESP_SLAVE=CONFIG_TARGET_ESP32=y
+else
+ESP_HOSTED_MODULE_MAKE_OPTS += ESP_SLAVE=CONFIG_TARGET_ESP32C6=y
 endif
 
 $(eval $(kernel-module))

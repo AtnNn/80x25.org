@@ -4,22 +4,19 @@
 #
 ################################################################################
 
-CONTAINERD_VERSION = 1.7.8
+CONTAINERD_VERSION = 2.0.2
 CONTAINERD_SITE = $(call github,containerd,containerd,v$(CONTAINERD_VERSION))
 CONTAINERD_LICENSE = Apache-2.0
 CONTAINERD_LICENSE_FILES = LICENSE
 CONTAINERD_CPE_ID_VENDOR = linuxfoundation
-CONTAINERD_CPE_ID_PRODUCT = containerd
 
-CONTAINERD_GOMOD = github.com/containerd/containerd
+CONTAINERD_GOMOD = github.com/containerd/containerd/v2
 
 CONTAINERD_LDFLAGS = \
 	-X $(CONTAINERD_GOMOD)/version.Version=$(CONTAINERD_VERSION)
 
 CONTAINERD_BUILD_TARGETS = \
 	cmd/containerd \
-	cmd/containerd-shim \
-	cmd/containerd-shim-runc-v1 \
 	cmd/containerd-shim-runc-v2 \
 	cmd/ctr
 
@@ -36,9 +33,7 @@ CONTAINERD_DEPENDENCIES += libseccomp host-pkgconf
 CONTAINERD_TAGS += seccomp
 endif
 
-ifeq ($(BR2_PACKAGE_CONTAINERD_DRIVER_BTRFS),y)
-CONTAINERD_DEPENDENCIES += btrfs-progs
-else
+ifneq ($(BR2_PACKAGE_CONTAINERD_DRIVER_BTRFS),y)
 CONTAINERD_TAGS += no_btrfs
 endif
 
@@ -52,6 +47,12 @@ endif
 
 ifneq ($(BR2_PACKAGE_CONTAINERD_CRI),y)
 CONTAINERD_TAGS += no_cri
+endif
+
+ifeq ($(BR2_TOOLCHAIN_USES_MUSL),y)
+# Go exe build with PIE doesn't work with musl.
+# See: https://github.com/golang/go/issues/17847
+CONTAINERD_EXTLDFLAGS += -Wl,--no-pie
 endif
 
 define CONTAINERD_INSTALL_INIT_SYSTEMD

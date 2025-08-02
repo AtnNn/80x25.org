@@ -19,7 +19,8 @@ class TestGlxinfo(infra.basetest.BRTest):
         BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="board/qemu/x86/linux.config"
         BR2_PACKAGE_MESA3D_DEMOS=y
         BR2_PACKAGE_MESA3D=y
-        BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_SWRAST=y
+        BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_SOFTPIPE=y
+        BR2_PACKAGE_MESA3D_OPENGL_EGL=y
         BR2_PACKAGE_MESA3D_OPENGL_GLX=y
         BR2_PACKAGE_XORG7=y
         BR2_PACKAGE_XSERVER_XORG_SERVER=y
@@ -42,7 +43,8 @@ class TestGlxinfo(infra.basetest.BRTest):
         self.emulator.boot(arch="i386",
                            kernel=kern,
                            kernel_cmdline=["root=/dev/vda console=ttyS0"],
-                           options=["-M", "pc", "-m", "512", "-drive", "file={},if=virtio,format=raw".format(img)])
+                           options=["-M", "pc", "-cpu", "core2duo", "-m", "512",
+                                    "-drive", "file={},if=virtio,format=raw".format(img)])
         self.emulator.login()
 
     def test_run(self):

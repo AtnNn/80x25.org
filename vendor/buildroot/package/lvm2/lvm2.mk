@@ -4,13 +4,13 @@
 #
 ################################################################################
 
-LVM2_VERSION = 2.03.14
+LVM2_VERSION = 2.03.31
 LVM2_SOURCE = LVM2.$(LVM2_VERSION).tgz
 LVM2_SITE = https://sourceware.org/ftp/lvm2
 LVM2_INSTALL_STAGING = YES
 LVM2_LICENSE = GPL-2.0, LGPL-2.1
 LVM2_LICENSE_FILES = COPYING COPYING.LIB
-LVM2_CPE_ID_PRODUCT = redhat
+LVM2_CPE_ID_VENDOR = redhat
 # parallel build issues
 LVM2_MAKE = $(MAKE1)
 
@@ -75,6 +75,11 @@ HOST_LVM2_CONF_OPTS = \
 	--disable-readline \
 	--disable-selinux \
 	--with-confdir=$(HOST_DIR)/etc
+
+define LVM2_LINUX_CONFIG_FIXUPS
+	$(call KCONFIG_ENABLE_OPT,CONFIG_MD)
+	$(call KCONFIG_ENABLE_OPT,CONFIG_BLK_DEV_DM)
+endef
 
 $(eval $(autotools-package))
 $(eval $(host-autotools-package))

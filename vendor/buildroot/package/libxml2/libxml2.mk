@@ -4,8 +4,8 @@
 #
 ################################################################################
 
-LIBXML2_VERSION_MAJOR = 2.12
-LIBXML2_VERSION = $(LIBXML2_VERSION_MAJOR).3
+LIBXML2_VERSION_MAJOR = 2.13
+LIBXML2_VERSION = $(LIBXML2_VERSION_MAJOR).8
 LIBXML2_SOURCE = libxml2-$(LIBXML2_VERSION).tar.xz
 LIBXML2_SITE = \
 	https://download.gnome.org/sources/libxml2/$(LIBXML2_VERSION_MAJOR)
@@ -15,12 +15,21 @@ LIBXML2_LICENSE_FILES = Copyright
 LIBXML2_CPE_ID_VENDOR = xmlsoft
 LIBXML2_CONFIG_SCRIPTS = xml2-config
 
+#0001-tree-Fix-integer-overflow-in-xmlBuildQName.patch
+LIBXML2_IGNORE_CVES += CVE-2025-6021
+
+#0002-schematron-Fix-memory-safety-issues-in-xmlSchematron.patch
+LIBXML2_IGNORE_CVES += CVE-2025-49794 CVE-2025-49796
+
+#0003-Schematron-Fix-null-pointer-dereference-leading-to-D.patch
+LIBXML2_IGNORE_CVES += CVE-2025-49795
+
 # relocation truncated to fit: R_68K_GOT16O
 ifeq ($(BR2_m68k_cf),y)
 LIBXML2_CONF_ENV += CFLAGS="$(TARGET_CFLAGS) -mxgot"
 endif
 
-LIBXML2_CONF_OPTS = --with-gnu-ld --without-debug
+LIBXML2_CONF_OPTS = --with-http --with-gnu-ld --without-debug
 
 HOST_LIBXML2_DEPENDENCIES = host-pkgconf
 LIBXML2_DEPENDENCIES = host-pkgconf

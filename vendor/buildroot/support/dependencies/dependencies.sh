@@ -142,7 +142,7 @@ fi
 
 # Check bash
 # We only check bash is available, setting SHELL appropriately is done
-# in the top-level Makefile, and we mimick the same sequence here
+# in the top-level Makefile, and we mimic the same sequence here
 if   [ -n "${BASH}" ]; then :
 elif [ -x /bin/bash ]; then :
 elif [ -z "$( sh -c 'echo $BASH' )" ]; then
@@ -153,7 +153,7 @@ fi
 
 # Check that a few mandatory programs are installed
 missing_progs="no"
-for prog in perl tar wget cpio unzip rsync bc cmp find xargs ${DL_TOOLS} ; do
+for prog in perl tar wget cpio unzip rsync bc cmp find xargs awk ${DL_TOOLS} ; do
 	if ! which $prog > /dev/null ; then
 		echo "You must install '$prog' on your build machine";
 		missing_progs="yes"
@@ -282,7 +282,7 @@ required_perl_modules="$required_perl_modules FindBin" # Used by (host-)libopens
 required_perl_modules="$required_perl_modules IPC::Cmd" # Used by (host-)libopenssl
 
 if grep -q ^BR2_PACKAGE_LIBOPENSSL=y $BR2_CONFIG && grep -q ^BR2_s390x=y $BR2_CONFIG ; then
-    required_perl_modules="$required_perl_modules Math::BigInt"
+    required_perl_modules="$required_perl_modules bigint"
 fi
 
 if grep -q ^BR2_PACKAGE_MOSH=y $BR2_CONFIG ; then

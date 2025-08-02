@@ -4,12 +4,14 @@
 #
 ################################################################################
 
-SHADOW_VERSION = 4.13
+SHADOW_VERSION = 4.17.4
 SHADOW_SITE = https://github.com/shadow-maint/shadow/releases/download/$(SHADOW_VERSION)
 SHADOW_SOURCE = shadow-$(SHADOW_VERSION).tar.xz
 SHADOW_LICENSE = BSD-3-Clause
 SHADOW_LICENSE_FILES = COPYING
 SHADOW_CPE_ID_VENDOR = debian
+SHADOW_DEPENDENCIES = $(TARGET_NLS_DEPENDENCIES)
+SHADOW_CONF_ENV = LIBS=$(TARGET_NLS_LIBS)
 
 SHADOW_CONF_OPTS = \
 	--disable-man \
@@ -43,13 +45,8 @@ else
 SHADOW_CONF_OPTS += --disable-account-tools-setuid
 endif
 
-ifeq ($(BR2_PACKAGE_SHADOW_UTMPX),y)
-SHADOW_CONF_OPTS += --enable-utmpx
-else
-SHADOW_CONF_OPTS += --disable-utmpx
-endif
-
 ifeq ($(BR2_PACKAGE_SHADOW_SUBORDINATE_IDS),y)
+SHADOW_INSTALL_STAGING = YES
 SHADOW_CONF_OPTS += --enable-subordinate-ids
 define SHADOW_SUBORDINATE_IDS_PERMISSIONS
 	/usr/bin/newuidmap f 4755 0 0 - - - - -
@@ -94,6 +91,10 @@ else
 SHADOW_CONF_OPTS += --without-selinux
 endif
 
+ifeq ($(BR2_PACKAGE_LIBXCRYPT),y)
+SHADOW_DEPENDENCIES += libxcrypt
+endif
+
 # linux-pam is also used without account-tools-setuid enabled
 ifeq ($(BR2_PACKAGE_LINUX_PAM),y)
 SHADOW_CONF_OPTS += --with-libpam
@@ -118,6 +119,13 @@ ifeq ($(BR2_PACKAGE_SHADOW_YESCRYPT),y)
 SHADOW_CONF_OPTS += --with-yescrypt
 else
 SHADOW_CONF_OPTS += --without-yescrypt
+endif
+
+ifeq ($(BR2_PACKAGE_LIBBSD),y)
+SHADOW_CONF_OPTS += --with-libbsd
+SHADOW_DEPENDENCIES += libbsd
+else
+SHADOW_CONF_OPTS += --without-libbsd
 endif
 
 define SHADOW_PERMISSIONS

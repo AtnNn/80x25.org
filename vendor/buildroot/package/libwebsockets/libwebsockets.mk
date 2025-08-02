@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-LIBWEBSOCKETS_VERSION = 4.3.2
+LIBWEBSOCKETS_VERSION = 4.3.5
 LIBWEBSOCKETS_SITE = $(call github,warmcat,libwebsockets,v$(LIBWEBSOCKETS_VERSION))
 LIBWEBSOCKETS_LICENSE = MIT with exceptions
 LIBWEBSOCKETS_LICENSE_FILES = LICENSE
@@ -96,6 +96,10 @@ endif
 
 ifeq ($(BR2_PACKAGE_LIBWEBSOCKETS_EXT_POLL),y)
 LIBWEBSOCKETS_CONF_OPTS += -DLWS_WITH_EXTERNAL_POLL=ON
+endif
+
+ifeq ($(BR2_PACKAGE_LIBWEBSOCKETS_ASYNC_DNS),y)
+LIBWEBSOCKETS_CONF_OPTS += -DLWS_WITH_SYS_ASYNC_DNS=ON
 endif
 
 $(eval $(cmake-package))

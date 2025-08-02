@@ -4,8 +4,8 @@
 #
 ################################################################################
 
-RAPIDJSON_VERSION = 1.1.0
-RAPIDJSON_SITE = $(call github,miloyip,rapidjson,v$(RAPIDJSON_VERSION))
+RAPIDJSON_VERSION = 24b5e7a8b27f42fa16b96fc70aade9106cf7102f
+RAPIDJSON_SITE = $(call github,Tencent,rapidjson,$(RAPIDJSON_VERSION))
 RAPIDJSON_LICENSE = MIT
 RAPIDJSON_LICENSE_FILES = license.txt
 RAPIDJSON_CPE_ID_VENDOR = tencent

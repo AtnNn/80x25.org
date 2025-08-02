@@ -4,12 +4,12 @@
 #
 ################################################################################
 
-E2FSPROGS_VERSION = 1.47.0
+E2FSPROGS_VERSION = 1.47.2
 E2FSPROGS_SOURCE = e2fsprogs-$(E2FSPROGS_VERSION).tar.xz
 E2FSPROGS_SITE = $(BR2_KERNEL_MIRROR)/linux/kernel/people/tytso/e2fsprogs/v$(E2FSPROGS_VERSION)
 E2FSPROGS_LICENSE = GPL-2.0, MIT-like with advertising clause (libss and libet)
 E2FSPROGS_LICENSE_FILES = NOTICE lib/ss/mit-sipb-copyright.h lib/et/internal.h
-E2FSPROGS_CPE_ID_VENDOR = e2fsprogs_project
+E2FSPROGS_CPE_ID_VALID = YES
 E2FSPROGS_INSTALL_STAGING = YES
 
 # Use libblkid and libuuid from util-linux for host and target packages.
@@ -61,10 +61,6 @@ E2FSPROGS_CONF_OPTS += --enable-fuse2fs
 E2FSPROGS_DEPENDENCIES += libfuse
 else
 E2FSPROGS_CONF_OPTS += --disable-fuse2fs
-endif
-
-ifeq ($(BR2_nios2),y)
-E2FSPROGS_CONF_ENV += ac_cv_func_fallocate=no
 endif
 
 # workaround gcc bug 111001

@@ -6,7 +6,7 @@
 [subrepo]
 	remote = http://git.buildroot.net/buildroot
 	branch = master
-	commit = dbe037dc9998155373b0a96687c55982f9c1a536
+	commit = f5101638b9f917dc4c569828ff3fee0c486ba8f8
 	parent = 3781cfcc5c3066cf68a18010b4310cdf226ea374
 	method = merge
 	cmdver = 0.4.6

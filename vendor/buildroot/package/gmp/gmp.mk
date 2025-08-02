@@ -14,6 +14,12 @@ GMP_CPE_ID_VENDOR = gmplib
 GMP_DEPENDENCIES = host-m4
 HOST_GMP_DEPENDENCIES = host-m4
 
+# 0001-Complete-function-prototype-in-acinclude.m4-for-C23-.patch
+GMP_AUTORECONF = YES
+HOST_GMP_AUTORECONF = YES
+
+GMP_CONF_ENV += CC_FOR_BUILD="$(HOSTCC) -std=c99"
+
 # GMP doesn't support assembly for coldfire or mips r6 ISA yet
 # Disable for ARM v7m since it has different asm constraints
 ifeq ($(BR2_m68k_cf)$(BR2_MIPS_CPU_MIPS32R6)$(BR2_MIPS_CPU_MIPS64R6)$(BR2_ARM_CPU_ARMV7M),y)
