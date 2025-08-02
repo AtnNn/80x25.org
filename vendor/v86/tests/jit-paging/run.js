@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-"use strict";
 
+import fs from "node:fs";
+import url from "node:url";
 process.on("unhandledRejection", exn => { throw exn; });
 
-const TEST_RELEASE_BUILD = +process.env.TEST_RELEASE_BUILD;
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 
-var V86 = require(`../../build/${TEST_RELEASE_BUILD ? "libv86" : "libv86-debug"}.js`).V86;
-var fs = require("fs");
+const TEST_RELEASE_BUILD = +process.env.TEST_RELEASE_BUILD;
+const { V86 } = await import(TEST_RELEASE_BUILD ? "../../build/libv86.mjs" : "../../src/main.js");
 
 var test_executable = new Uint8Array(fs.readFileSync(__dirname + "/test-jit"));
 
@@ -23,7 +24,7 @@ var emulator = new V86({
 
 emulator.bus.register("emulator-started", function()
 {
-    console.error("Booting now, please stand by");
+    console.log("Booting now, please stand by");
     emulator.create_file("test-jit", test_executable);
 });
 
@@ -63,7 +64,7 @@ emulator.add_listener("serial0-output-byte", async function(byte)
 
         const data = await emulator.read_file("/result");
 
-        emulator.stop();
+        emulator.destroy();
 
         let result = Buffer.from(data).toString();
         if(result !== "test_shared passed\ntest_consecutive_written passed\n")

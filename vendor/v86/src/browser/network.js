@@ -1,4 +1,5 @@
-"use strict";
+// For Types Only
+import { BusConnector } from "../bus.js";
 
 /**
  * An ethernet-through-websocket adapter, to be used with
@@ -10,11 +11,13 @@
  *
  * @param {string} url
  * @param {BusConnector} bus
+ * @param {number} [id=0] id
  */
-function NetworkAdapter(url, bus)
+export function NetworkAdapter(url, bus, id)
 {
     this.bus = bus;
     this.socket = undefined;
+    this.id = id || 0;
 
     // TODO: circular buffer?
     this.send_queue = [];
@@ -23,8 +26,9 @@ function NetworkAdapter(url, bus)
     this.reconnect_interval = 10000;
     this.last_connect_attempt = Date.now() - this.reconnect_interval;
     this.send_queue_limit = 64;
+    this.destroyed = false;
 
-    this.bus.register("net0-send", function(data)
+    this.bus.register("net" + this.id + "-send", function(data)
     {
         this.send(data);
     }, this);
@@ -34,7 +38,7 @@ NetworkAdapter.prototype.handle_message = function(e)
 {
     if(this.bus)
     {
-        this.bus.send("net0-receive", new Uint8Array(e.data));
+        this.bus.send("net" + this.id + "-receive", new Uint8Array(e.data));
     }
 };
 
@@ -42,8 +46,11 @@ NetworkAdapter.prototype.handle_close = function(e)
 {
     //console.log("onclose", e);
 
-    this.connect();
-    setTimeout(this.connect.bind(this), this.reconnect_interval);
+    if(!this.destroyed)
+    {
+        this.connect();
+        setTimeout(this.connect.bind(this), this.reconnect_interval);
+    }
 };
 
 NetworkAdapter.prototype.handle_open = function(e)
@@ -65,6 +72,7 @@ NetworkAdapter.prototype.handle_error = function(e)
 
 NetworkAdapter.prototype.destroy = function()
 {
+    this.destroyed = true;
     if(this.socket)
     {
         this.socket.close();
@@ -98,7 +106,16 @@ NetworkAdapter.prototype.connect = function()
 
     this.last_connect_attempt = Date.now();
 
-    this.socket = new WebSocket(this.url);
+    try
+    {
+        this.socket = new WebSocket(this.url);
+    }
+    catch(e)
+    {
+        console.error(e);
+        return;
+    }
+
     this.socket.binaryType = "arraybuffer";
 
     this.socket.onopen = this.handle_open.bind(this);

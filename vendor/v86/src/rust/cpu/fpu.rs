@@ -1,7 +1,8 @@
-use cpu::cpu::*;
-use cpu::global_pointers::*;
-use paging::OrPageFault;
-use softfloat::{Precision, RoundingMode, F80};
+use crate::cpu::cpu::*;
+use crate::cpu::global_pointers::*;
+use crate::paging::OrPageFault;
+use crate::softfloat::{Precision, RoundingMode, F80};
+
 use std::f64;
 
 const FPU_C0: u16 = 0x100;
@@ -61,9 +62,7 @@ pub unsafe fn fpu_sti_empty(mut i: i32) -> bool {
 }
 
 #[no_mangle]
-pub unsafe fn fpu_get_sti_jit(dst: *mut F80, i: i32) {
-    *dst = fpu_get_sti(i);
-}
+pub unsafe fn fpu_get_sti_jit(dst: *mut F80, i: i32) { *dst = fpu_get_sti(i); }
 
 pub unsafe fn fpu_get_sti(mut i: i32) -> F80 {
     dbg_assert!(i >= 0 && i < 8);
@@ -78,16 +77,15 @@ pub unsafe fn fpu_get_sti(mut i: i32) -> F80 {
     };
 }
 
+// only used for debugging
 #[no_mangle]
 pub unsafe fn fpu_get_sti_f64(mut i: i32) -> f64 {
     i = i + *fpu_stack_ptr as i32 & 7;
-    std::mem::transmute((*fpu_st.offset(i as isize)).to_f64())
+    f64::from_bits((*fpu_st.offset(i as isize)).to_f64())
 }
 
 #[no_mangle]
-pub unsafe fn f32_to_f80_jit(dst: *mut F80, v: i32) {
-    *dst = f32_to_f80(v)
-}
+pub unsafe fn f32_to_f80_jit(dst: *mut F80, v: i32) { *dst = f32_to_f80(v) }
 pub unsafe fn f32_to_f80(v: i32) -> F80 {
     F80::clear_exception_flags();
     let x = F80::of_f32(v);
@@ -95,9 +93,7 @@ pub unsafe fn f32_to_f80(v: i32) -> F80 {
     x
 }
 #[no_mangle]
-pub unsafe fn f64_to_f80_jit(dst: *mut F80, v: u64) {
-    *dst = f64_to_f80(v)
-}
+pub unsafe fn f64_to_f80_jit(dst: *mut F80, v: u64) { *dst = f64_to_f80(v) }
 pub unsafe fn f64_to_f80(v: u64) -> F80 {
     F80::clear_exception_flags();
     let x = F80::of_f64(v);
@@ -328,12 +324,12 @@ pub unsafe fn fpu_convert_to_i16(f: F80) -> i16 {
 pub unsafe fn fpu_fistm16(addr: i32) {
     return_on_pagefault!(writable_or_pagefault(addr, 2));
     let v = fpu_convert_to_i16(fpu_get_st0());
-    safe_write16(addr, v as i32).unwrap();
+    safe_write16(addr, v as i32 & 0xFFFF).unwrap();
 }
 pub unsafe fn fpu_fistm16p(addr: i32) {
     return_on_pagefault!(writable_or_pagefault(addr, 2));
     let v = fpu_convert_to_i16(fpu_get_st0());
-    safe_write16(addr, v as i32).unwrap();
+    safe_write16(addr, v as i32 & 0xFFFF).unwrap();
     fpu_pop();
 }
 #[no_mangle]
@@ -350,7 +346,7 @@ pub unsafe fn fpu_truncate_to_i16(f: F80) -> i16 {
 pub unsafe fn fpu_fisttpm16(addr: i32) {
     return_on_pagefault!(writable_or_pagefault(addr, 2));
     let v = fpu_truncate_to_i16(fpu_get_st0());
-    safe_write16(addr, v as i32).unwrap();
+    safe_write16(addr, v as i32 & 0xFFFF).unwrap();
     fpu_pop();
 }
 
@@ -501,7 +497,7 @@ pub unsafe fn fpu_fprem(ieee: bool) {
     let exp0 = st0.log2();
     let exp1 = st1.log2();
     let d = (exp0 - exp1).abs();
-    if !intel_compatibility || d < F80::of_f64(std::mem::transmute(64.0)) {
+    if !intel_compatibility || d < F80::of_f64(f64::to_bits(64.0)) {
         let fprem_quotient =
             (if ieee { (st0 / st1).round() } else { (st0 / st1).trunc() }).to_i32();
         fpu_write_st(*fpu_stack_ptr as i32, st0 % st1);
@@ -518,7 +514,7 @@ pub unsafe fn fpu_fprem(ieee: bool) {
         *fpu_status_word &= !FPU_C2;
     }
     else {
-        let n = F80::of_f64(std::mem::transmute(32.0));
+        let n = F80::of_f64(f64::to_bits(32.0));
         let fprem_quotient =
             (if ieee { (st0 / st1).round() } else { (st0 / st1).trunc() } / (d - n).two_pow());
         fpu_write_st(
@@ -593,7 +589,7 @@ pub unsafe fn fpu_fstenv32(addr: i32) {
 }
 #[no_mangle]
 pub unsafe fn fpu_load_tag_word() -> i32 {
-    let mut tag_word: i32 = 0;
+    let mut tag_word = 0;
     for i in 0..8 {
         let value = *fpu_st.offset(i as isize);
         if 0 != *fpu_stack_empty >> i & 1 {

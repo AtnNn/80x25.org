@@ -3,16 +3,25 @@
 // -------------------------------------------------
 // Implementation of a unix filesystem in memory.
 
-"use strict";
 
-var S_IRWXUGO = 0x1FF;
-var S_IFMT = 0xF000;
-var S_IFSOCK = 0xC000;
-var S_IFLNK = 0xA000;
-var S_IFREG = 0x8000;
-var S_IFBLK = 0x6000;
-var S_IFDIR = 0x4000;
-var S_IFCHR = 0x2000;
+import { LOG_9P } from "../src/const.js";
+import { h } from "../src/lib.js";
+import { dbg_assert, dbg_log } from "../src/log.js";
+import * as marshall from "../lib/marshall.js";
+import { EEXIST, ENOTEMPTY, ENOENT, EPERM } from "./9p.js";
+import { P9_LOCK_SUCCESS, P9_LOCK_BLOCKED, P9_LOCK_TYPE_UNLCK, P9_LOCK_TYPE_WRLCK, P9_LOCK_TYPE_RDLCK } from "./9p.js";
+
+// For Types Only
+import { FileStorageInterface } from "../src/browser/filestorage.js";
+
+export const S_IRWXUGO = 0x1FF;
+export const S_IFMT = 0xF000;
+export const S_IFSOCK = 0xC000;
+export const S_IFLNK = 0xA000;
+export const S_IFREG = 0x8000;
+export const S_IFBLK = 0x6000;
+export const S_IFDIR = 0x4000;
+export const S_IFCHR = 0x2000;
 
 //var S_IFIFO  0010000
 //var S_ISUID  0004000
@@ -24,12 +33,13 @@ var O_WRONLY = 0x0001; // open for writing only
 var O_RDWR = 0x0002; // open for reading and writing
 var O_ACCMODE = 0x0003; // mask for above modes
 
-var STATUS_INVALID = -0x1;
-var STATUS_OK = 0x0;
-var STATUS_ON_STORAGE = 0x2;
-var STATUS_UNLINKED = 0x4;
-var STATUS_FORWARDING = 0x5;
+export const STATUS_INVALID = -0x1;
+export const STATUS_OK = 0x0;
+export const STATUS_ON_STORAGE = 0x2;
+export const STATUS_UNLINKED = 0x4;
+export const STATUS_FORWARDING = 0x5;
 
+const texten = new TextEncoder();
 
 /** @const */ var JSONFS_VERSION = 3;
 
@@ -49,7 +59,7 @@ var STATUS_FORWARDING = 0x5;
  * @param {!FileStorageInterface} storage
  * @param {{ last_qidnumber: number }=} qidcounter Another fs's qidcounter to synchronise with.
  */
-function FS(storage, qidcounter) {
+export function FS(storage, qidcounter) {
     /** @type {Array.<!Inode>} */
     this.inodes = [];
     this.events = [];
@@ -131,7 +141,7 @@ FS.prototype.set_state = function(state)
 
 FS.prototype.AddEvent = function(id, OnEvent) {
     var inode = this.inodes[id];
-    if (inode.status == STATUS_OK || inode.status == STATUS_ON_STORAGE) {
+    if(inode.status === STATUS_OK || inode.status === STATUS_ON_STORAGE) {
         OnEvent();
     }
     else if(this.is_forwarder(inode))
@@ -150,10 +160,10 @@ FS.prototype.HandleEvent = function(id) {
     {
         this.follow_fs(inode).HandleEvent(inode.foreign_id);
     }
-    //message.Debug("number of events: " + this.events.length);
+    //dbg_log("number of events: " + this.events.length, LOG_9P);
     var newevents = [];
     for(var i=0; i<this.events.length; i++) {
-        if (this.events[i].id == id) {
+        if(this.events[i].id === id) {
             this.events[i].OnEvent();
         } else {
             newevents.push(this.events[i]);
@@ -162,7 +172,7 @@ FS.prototype.HandleEvent = function(id) {
     this.events = newevents;
 };
 
-FS.prototype.load_from_json = function(fs, done)
+FS.prototype.load_from_json = function(fs)
 {
     dbg_assert(fs, "Invalid fs passed to load_from_json");
 
@@ -183,8 +193,6 @@ FS.prototype.load_from_json = function(fs, done)
     //{
     //    this.Check();
     //}
-
-    done && done();
 };
 
 FS.prototype.LoadRecursive = function(data, parentid)
@@ -225,7 +233,7 @@ FS.prototype.LoadRecursive = function(data, parentid)
     }
     else
     {
-        dbg_log("Unexpected ifmt: " + h(ifmt) + " (" + name + ")");
+        dbg_log("Unexpected ifmt: " + h(ifmt) + " (" + name + ")", LOG_9P);
     }
 };
 
@@ -326,13 +334,13 @@ FS.prototype.unlink_from_dir = function(parentid, name)
 };
 
 FS.prototype.PushInode = function(inode, parentid, name) {
-    if (parentid != -1) {
+    if(parentid !== -1) {
         this.inodes.push(inode);
         inode.fid = this.inodes.length - 1;
         this.link_under_dir(parentid, inode.fid, name);
         return;
     } else {
-        if (this.inodes.length == 0) { // if root directory
+        if(this.inodes.length === 0) { // if root directory
             this.inodes.push(inode);
             inode.direntries.set(".", 0);
             inode.direntries.set("..", 0);
@@ -341,9 +349,7 @@ FS.prototype.PushInode = function(inode, parentid, name) {
         }
     }
 
-    message.Debug("Error in Filesystem: Pushed inode with name = "+ name + " has no parent");
-    message.Abort();
-
+    dbg_assert(false, "Error in Filesystem: Pushed inode with name = "+ name + " has no parent");
 };
 
 /** @constructor */
@@ -579,14 +585,14 @@ FS.prototype.CreateDirectory = function(name, parentid) {
     }
     var x = this.CreateInode();
     x.mode = 0x01FF | S_IFDIR;
-    if (parentid >= 0) {
+    if(parentid >= 0) {
         x.uid = this.inodes[parentid].uid;
         x.gid = this.inodes[parentid].gid;
         x.mode = (this.inodes[parentid].mode & 0x1FF) | S_IFDIR;
     }
     x.qid.type = S_IFDIR >> 8;
     this.PushInode(x, parentid, name);
-    this.NotifyListeners(this.inodes.length-1, 'newdir');
+    this.NotifyListeners(this.inodes.length-1, "newdir");
     return this.inodes.length-1;
 };
 
@@ -604,7 +610,7 @@ FS.prototype.CreateFile = function(filename, parentid) {
     x.qid.type = S_IFREG >> 8;
     x.mode = (this.inodes[parentid].mode & 0x1B6) | S_IFREG;
     this.PushInode(x, parentid, filename);
-    this.NotifyListeners(this.inodes.length-1, 'newfile');
+    this.NotifyListeners(this.inodes.length-1, "newfile");
     return this.inodes.length-1;
 };
 
@@ -661,7 +667,7 @@ FS.prototype.CreateTextFile = async function(filename, parentid, str) {
     var x = this.inodes[id];
     var data = new Uint8Array(str.length);
     x.size = str.length;
-    for (var j = 0; j < str.length; j++) {
+    for(var j = 0; j < str.length; j++) {
         data[j] = str.charCodeAt(j);
     }
     await this.set_data(id, data);
@@ -696,7 +702,7 @@ FS.prototype.OpenInode = function(id, mode) {
     {
         return this.follow_fs(inode).OpenInode(inode.foreign_id, mode);
     }
-    if ((inode.mode&S_IFMT) == S_IFDIR) {
+    if((inode.mode&S_IFMT) === S_IFDIR) {
         this.FillDirectory(id);
     }
     /*
@@ -708,12 +714,12 @@ FS.prototype.OpenInode = function(id, mode) {
         case S_IFCHR: type = "Character Device"; break;
     }
     */
-    //message.Debug("open:" + this.GetFullPath(id) +  " type: " + inode.mode + " status:" + inode.status);
+    //dbg_log("open:" + this.GetFullPath(id) +  " type: " + inode.mode + " status:" + inode.status, LOG_9P);
     return true;
 };
 
 FS.prototype.CloseInode = async function(id) {
-    //message.Debug("close: " + this.GetFullPath(id));
+    //dbg_log("close: " + this.GetFullPath(id), LOG_9P);
     var inode = this.inodes[id];
     if(this.is_forwarder(inode))
     {
@@ -723,8 +729,8 @@ FS.prototype.CloseInode = async function(id) {
     {
         this.storage.uncache(inode.sha256sum);
     }
-    if (inode.status == STATUS_UNLINKED) {
-        //message.Debug("Filesystem: Delete unlinked file");
+    if(inode.status === STATUS_UNLINKED) {
+        //dbg_log("Filesystem: Delete unlinked file", LOG_9P);
         inode.status = STATUS_INVALID;
         await this.DeleteData(id);
     }
@@ -734,8 +740,8 @@ FS.prototype.CloseInode = async function(id) {
  * @return {!Promise<number>} 0 if success, or -errno if failured.
  */
 FS.prototype.Rename = async function(olddirid, oldname, newdirid, newname) {
-    // message.Debug("Rename " + oldname + " to " + newname);
-    if ((olddirid == newdirid) && (oldname == newname)) {
+    // dbg_log("Rename " + oldname + " to " + newname, LOG_9P);
+    if((olddirid === newdirid) && (oldname === newname)) {
         return 0;
     }
     var oldid = this.Search(olddirid, oldname);
@@ -748,7 +754,7 @@ FS.prototype.Rename = async function(olddirid, oldname, newdirid, newname) {
     var oldpath = this.GetFullPath(olddirid) + "/" + oldname;
 
     var newid = this.Search(newdirid, newname);
-    if (newid != -1) {
+    if(newid !== -1) {
         const ret = this.Unlink(newdirid, newname);
         if(ret < 0) return ret;
     }
@@ -854,7 +860,7 @@ FS.prototype.Rename = async function(olddirid, oldname, newdirid, newname) {
 };
 
 FS.prototype.Write = async function(id, offset, count, buffer) {
-    this.NotifyListeners(id, 'write');
+    this.NotifyListeners(id, "write");
     var inode = this.inodes[id];
 
     if(this.is_forwarder(inode))
@@ -866,12 +872,12 @@ FS.prototype.Write = async function(id, offset, count, buffer) {
 
     var data = await this.get_buffer(id);
 
-    if (!data || data.length < (offset+count)) {
+    if(!data || data.length < (offset+count)) {
         await this.ChangeSize(id, Math.floor(((offset+count)*3)/2));
         inode.size = offset + count;
         data = await this.get_buffer(id);
     } else
-    if (inode.size < (offset+count)) {
+    if(inode.size < (offset+count)) {
         inode.size = offset + count;
     }
     if(buffer)
@@ -986,7 +992,7 @@ FS.prototype.GetFullPath = function(idx) {
 
     var path = "";
 
-    while(idx != 0) {
+    while(idx !== 0) {
         path = "/" + this.GetDirectoryName(idx) + path;
         idx = this.GetParent(idx);
     }
@@ -1038,7 +1044,7 @@ FS.prototype.Unlink = function(parentid, name) {
     const idx = this.Search(parentid, name);
     const inode = this.inodes[idx];
     const parent_inode = this.inodes[parentid];
-    //message.Debug("Unlink " + inode.name);
+    //dbg_log("Unlink " + inode.name, LOG_9P);
 
     // forward if necessary
     if(this.is_forwarder(parent_inode))
@@ -1062,7 +1068,7 @@ FS.prototype.Unlink = function(parentid, name) {
     {
         // don't delete the content. The file is still accessible
         inode.status = STATUS_UNLINKED;
-        this.NotifyListeners(idx, 'delete');
+        this.NotifyListeners(idx, "delete");
     }
     return 0;
 };
@@ -1171,8 +1177,8 @@ FS.prototype.ChangeSize = async function(idx, newsize)
 {
     var inode = this.GetInode(idx);
     var temp = await this.get_data(idx, 0, inode.size);
-    //message.Debug("change size to: " + newsize);
-    if (newsize == inode.size) return;
+    //dbg_log("change size to: " + newsize, LOG_9P);
+    if(newsize === inode.size) return;
     var data = new Uint8Array(newsize);
     inode.size = newsize;
     if(temp)
@@ -1187,8 +1193,8 @@ FS.prototype.SearchPath = function(path) {
     //path = path.replace(/\/\//g, "/");
     path = path.replace("//", "/");
     var walk = path.split("/");
-    if (walk.length > 0 && walk[walk.length - 1].length === 0) walk.pop();
-    if (walk.length > 0 && walk[0].length === 0) walk.shift();
+    if(walk.length > 0 && walk[walk.length - 1].length === 0) walk.pop();
+    if(walk.length > 0 && walk[0].length === 0) walk.shift();
     const n = walk.length;
 
     var parentid = -1;
@@ -1201,8 +1207,8 @@ FS.prototype.SearchPath = function(path) {
         {
             forward_path = "/" + walk.slice(i).join("/");
         }
-        if (id == -1) {
-            if (i < n-1) return {id: -1, parentid: -1, name: walk[i], forward_path }; // one name of the path cannot be found
+        if(id === -1) {
+            if(i < n-1) return {id: -1, parentid: -1, name: walk[i], forward_path }; // one name of the path cannot be found
             return {id: -1, parentid: parentid, name: walk[i], forward_path}; // the last element in the path does not exist, but the parent
         }
     }
@@ -1259,18 +1265,16 @@ FS.prototype.RecursiveDelete = function(path) {
 
 FS.prototype.DeleteNode = function(path) {
     var ids = this.SearchPath(path);
-    if (ids.id == -1) return;
+    if(ids.id === -1) return;
 
-    if ((this.inodes[ids.id].mode&S_IFMT) == S_IFREG){
+    if((this.inodes[ids.id].mode&S_IFMT) === S_IFREG){
         const ret = this.Unlink(ids.parentid, ids.name);
         dbg_assert(ret === 0, "Filesystem DeleteNode failed with error code: " + (-ret));
-        return;
     }
-    if ((this.inodes[ids.id].mode&S_IFMT) == S_IFDIR){
+    else if((this.inodes[ids.id].mode&S_IFMT) === S_IFDIR){
         this.RecursiveDelete(path);
         const ret = this.Unlink(ids.parentid, ids.name);
         dbg_assert(ret === 0, "Filesystem DeleteNode failed with error code: " + (-ret));
-        return;
     }
 };
 
@@ -1280,13 +1284,13 @@ FS.prototype.NotifyListeners = function(id, action, info) {
     //    info = {};
 
     //var path = this.GetFullPath(id);
-    //if (this.watchFiles[path] == true && action=='write') {
+    //if (this.watchFiles[path] === true && action=='write') {
     //  message.Send("WatchFileEvent", path);
     //}
     //for (var directory of this.watchDirectories) {
     //    if (this.watchDirectories.hasOwnProperty(directory)) {
     //        var indexOf = path.indexOf(directory)
-    //        if(indexOf == 0 || indexOf == 1)
+    //        if(indexOf === 0 || indexOf === 1)
     //            message.Send("WatchDirectoryEvent", {path: path, event: action, info: info});
     //    }
     //}
@@ -1296,28 +1300,28 @@ FS.prototype.NotifyListeners = function(id, action, info) {
 FS.prototype.Check = function() {
     for(var i=1; i<this.inodes.length; i++)
     {
-        if (this.inodes[i].status == STATUS_INVALID) continue;
+        if(this.inodes[i].status === STATUS_INVALID) continue;
 
         var inode = this.GetInode(i);
-        if (inode.nlinks < 0) {
-            message.Debug("Error in filesystem: negative nlinks=" + inode.nlinks + " at id =" + i);
+        if(inode.nlinks < 0) {
+            dbg_log("Error in filesystem: negative nlinks=" + inode.nlinks + " at id =" + i, LOG_9P);
         }
 
         if(this.IsDirectory(i))
         {
             const inode = this.GetInode(i);
             if(this.IsDirectory(i) && this.GetParent(i) < 0) {
-                message.Debug("Error in filesystem: negative parent id " + i);
+                dbg_log("Error in filesystem: negative parent id " + i, LOG_9P);
             }
             for(const [name, id] of inode.direntries)
             {
                 if(name.length === 0) {
-                    message.Debug("Error in filesystem: inode with no name and id " + id);
+                    dbg_log("Error in filesystem: inode with no name and id " + id, LOG_9P);
                 }
 
-                for (const c of name) {
-                    if (c < 32) {
-                        message.Debug("Error in filesystem: Unallowed char in filename");
+                for(const c of name) {
+                    if(c < 32) {
+                        dbg_log("Error in filesystem: Unallowed char in filename", LOG_9P);
                     }
                 }
             }
@@ -1340,7 +1344,7 @@ FS.prototype.FillDirectory = function(dirid) {
     let size = 0;
     for(const name of inode.direntries.keys())
     {
-        size += 13 + 8 + 1 + 2 + UTF8.UTF8Length(name);
+        size += 13 + 8 + 1 + 2 + texten.encode(name).length;
     }
     const data = this.inodedata[dirid] = new Uint8Array(size);
     inode.size = size;
@@ -1352,7 +1356,7 @@ FS.prototype.FillDirectory = function(dirid) {
         offset += marshall.Marshall(
             ["Q", "d", "b", "s"],
             [child.qid,
-            offset+13+8+1+2+UTF8.UTF8Length(name),
+            offset+13+8+1+2+texten.encode(name).length,
             child.mode >> 12,
             name],
             data, offset);
@@ -1472,7 +1476,7 @@ FS.prototype.GetParent = function(idx)
 //   http://man7.org/linux/man-pages/man3/libcap.3.html
 FS.prototype.PrepareCAPs = function(id) {
     var inode = this.GetInode(id);
-    if (inode.caps) return inode.caps.length;
+    if(inode.caps) return inode.caps.length;
     inode.caps = new Uint8Array(20);
     // format is little endian
     // note: getxattr returns -EINVAL if using revision 1 format.

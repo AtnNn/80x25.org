@@ -1,4 +1,10 @@
-"use strict";
+import { LOG_VIRTIO } from "./const.js";
+import { h, int_log2 } from "./lib.js";
+import { dbg_assert, dbg_log } from "./log.js";
+
+// For Types Only
+import { CPU } from "./cpu.js";
+import { PCI } from "./pci.js";
 
 // http://docs.oasis-open.org/virtio/virtio/v1.0/virtio-v1.0.html
 
@@ -32,9 +38,9 @@ const VIRTIO_ISR_DEVICE_CFG = 2;
 
 // Feature bits (bit positions).
 
-const VIRTIO_F_RING_INDIRECT_DESC = 28;
-const VIRTIO_F_RING_EVENT_IDX = 29;
-const VIRTIO_F_VERSION_1 = 32;
+export const VIRTIO_F_RING_INDIRECT_DESC = 28;
+export const VIRTIO_F_RING_EVENT_IDX = 29;
+export const VIRTIO_F_VERSION_1 = 32;
 
 // Queue struct sizes.
 
@@ -153,7 +159,7 @@ var VirtIO_Options;
  * @param {CPU} cpu
  * @param {VirtIO_Options} options
  */
-function VirtIO(cpu, options)
+export function VirtIO(cpu, options)
 {
     const io = cpu.io;
 
@@ -224,7 +230,7 @@ function VirtIO(cpu, options)
     ];
 
     // Prevent sparse arrays by preallocating.
-    this.pci_space = this.pci_space.concat(v86util.zeros(256 - this.pci_space.length));
+    this.pci_space = this.pci_space.concat(Array(256 - this.pci_space.length).fill(0));
     // Remaining PCI space is appended by capabilities further below.
 
     this.pci_id = options.pci_id;
@@ -480,7 +486,7 @@ VirtIO.prototype.create_common_capability = function(options)
                         dbg_log("Warning: dev<" + this.name +"> " +
                                 "Given queue size was not a power of 2. " +
                                 "Rounding up to next power of 2.", LOG_VIRTIO);
-                        data = 1 << (v86util.int_log2(data - 1) + 1);
+                        data = 1 << (int_log2(data - 1) + 1);
                     }
                     if(data > this.queue_selected.size_supported)
                     {
@@ -553,7 +559,7 @@ VirtIO.prototype.create_common_capability = function(options)
                 read: () => 0,
                 write: data =>
                 {
-                    dbg_log("Warning: High dword of 64 bit queue_desc ignored", LOG_VIRTIO);
+                    if(data !== 0) dbg_log("Warning: High dword of 64 bit queue_desc ignored:" + data, LOG_VIRTIO);
                 },
             },
             {
@@ -571,7 +577,7 @@ VirtIO.prototype.create_common_capability = function(options)
                 read: () => 0,
                 write: data =>
                 {
-                    dbg_log("Warning: High dword of 64 bit queue_avail ignored", LOG_VIRTIO);
+                    if(data !== 0) dbg_log("Warning: High dword of 64 bit queue_avail ignored:" + data, LOG_VIRTIO);
                 },
             },
             {
@@ -589,7 +595,7 @@ VirtIO.prototype.create_common_capability = function(options)
                 read: () => 0,
                 write: data =>
                 {
-                    dbg_log("Warning: High dword of 64 bit queue_used ignored", LOG_VIRTIO);
+                    if(data !== 0) dbg_log("Warning: High dword of 64 bit queue_used ignored:" + data, LOG_VIRTIO);
                 },
             },
         ],
@@ -727,7 +733,7 @@ VirtIO.prototype.init_capabilities = function(capabilities)
 
         // Round up to next power of 2,
         // Minimum 16 bytes for its size to be detectable in general (esp. mmio).
-        bar_size = bar_size < 16 ? 16 : 1 << (v86util.int_log2(bar_size - 1) + 1);
+        bar_size = bar_size < 16 ? 16 : 1 << (int_log2(bar_size - 1) + 1);
 
         dbg_assert((cap.port & (bar_size - 1)) === 0,
             "VirtIO device<" + this.name + "> capability port should be aligned to pci bar size");
@@ -823,10 +829,14 @@ VirtIO.prototype.init_capabilities = function(capabilities)
                 {
                     case 4:
                         this.cpu.io.register_read(port, this, shim_read8_on_32, undefined, read);
+                        this.cpu.io.register_read(port + 1, this, shim_read8_on_32);
+                        this.cpu.io.register_read(port + 2, this, shim_read8_on_32);
+                        this.cpu.io.register_read(port + 3, this, shim_read8_on_32);
                         this.cpu.io.register_write(port, this, undefined, undefined, write);
                         break;
                     case 2:
                         this.cpu.io.register_read(port, this, shim_read8_on_16, read);
+                        this.cpu.io.register_read(port + 1, this, shim_read8_on_16);
                         this.cpu.io.register_write(port, this, undefined, write);
                         break;
                     case 1:
@@ -924,7 +934,7 @@ VirtIO.prototype.set_state = function(state)
     this.isr_status = state[8];
     this.queue_select = state[9];
     let i = 0;
-    for(let queue of state.slice(10))
+    for(const queue of state.slice(10))
     {
         this.queues[i].set_state(queue);
         i++;
@@ -1067,6 +1077,7 @@ VirtQueue.prototype.get_state = function()
     state[6] = this.avail_last_idx;
     state[7] = this.used_addr;
     state[8] = this.num_staged_replies;
+    state[9] = 1;
 
     return state;
 };
@@ -1084,6 +1095,7 @@ VirtQueue.prototype.set_state = function(state)
     this.num_staged_replies = state[8];
 
     this.mask = this.size - 1;
+    this.fix_wrapping = state[9] !== 1;
 };
 
 VirtQueue.prototype.reset = function()
@@ -1122,7 +1134,11 @@ VirtQueue.prototype.set_size = function(size)
 VirtQueue.prototype.count_requests = function()
 {
     dbg_assert(this.avail_addr, "VirtQueue addresses must be configured before use");
-    return (this.avail_get_idx() - this.avail_last_idx) & this.mask;
+    if(this.fix_wrapping) {
+        this.fix_wrapping = false;
+        this.avail_last_idx = (this.avail_get_idx() & ~this.mask) + (this.avail_last_idx & this.mask);
+    }
+    return (this.avail_get_idx() - this.avail_last_idx) & 0xFFFF;
 };
 
 /**
@@ -1131,7 +1147,7 @@ VirtQueue.prototype.count_requests = function()
 VirtQueue.prototype.has_request = function()
 {
     dbg_assert(this.avail_addr, "VirtQueue addresses must be configured before use");
-    return (this.avail_get_idx() & this.mask) !== this.avail_last_idx;
+    return this.count_requests() !== 0;
 };
 
 /**
@@ -1148,7 +1164,7 @@ VirtQueue.prototype.pop_request = function()
 
     const bufchain = new VirtQueueBufferChain(this, desc_idx);
 
-    this.avail_last_idx = this.avail_last_idx + 1 & this.mask;
+    this.avail_last_idx = (this.avail_last_idx + 1) & 0xFFFF;
 
     return bufchain;
 };
@@ -1267,7 +1283,7 @@ VirtQueue.prototype.avail_get_idx = function()
 
 VirtQueue.prototype.avail_get_entry = function(i)
 {
-    return this.cpu.read16(this.avail_addr + 4 + VIRTQ_AVAIL_ENTRYSIZE * i);
+    return this.cpu.read16(this.avail_addr + 4 + VIRTQ_AVAIL_ENTRYSIZE * (i & this.mask));
 };
 
 VirtQueue.prototype.avail_get_used_event = function()

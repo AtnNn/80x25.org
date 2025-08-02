@@ -1,15 +1,16 @@
-use cpu::cpu::{
+use crate::cpu::cpu::{
     tlb_data, FLAG_CARRY, FLAG_OVERFLOW, FLAG_SIGN, FLAG_ZERO, OPSIZE_16, OPSIZE_32, OPSIZE_8,
     TLB_GLOBAL, TLB_HAS_CODE, TLB_NO_USER, TLB_READONLY, TLB_VALID,
 };
-use cpu::global_pointers;
-use cpu::memory;
-use jit::{Instruction, InstructionOperand, InstructionOperandDest, JitContext};
-use modrm;
-use modrm::ModrmByte;
-use profiler;
-use regs;
-use wasmgen::wasm_builder::{WasmBuilder, WasmLocal, WasmLocalI64};
+use crate::cpu::global_pointers;
+use crate::cpu::memory;
+use crate::jit::{Instruction, InstructionOperand, InstructionOperandDest, JitContext};
+use crate::modrm;
+use crate::modrm::ModrmByte;
+use crate::opstats;
+use crate::profiler;
+use crate::regs;
+use crate::wasmgen::wasm_builder::{WasmBuilder, WasmLocal, WasmLocalI64};
 
 pub fn gen_add_cs_offset(ctx: &mut JitContext) {
     if !ctx.cpu.has_flat_segmentation() {
@@ -454,7 +455,11 @@ pub fn gen_modrm_resolve_with_local(
         ctx.builder.free_local(address);
     }
 }
-pub fn gen_modrm_resolve_with_esp_offset(ctx: &mut JitContext, modrm_byte: ModrmByte, esp_offset: i32) {
+pub fn gen_modrm_resolve_with_esp_offset(
+    ctx: &mut JitContext,
+    modrm_byte: ModrmByte,
+    esp_offset: i32,
+) {
     modrm::gen(ctx, modrm_byte, esp_offset)
 }
 
@@ -1108,7 +1113,7 @@ pub fn gen_safe_read_write(
         }
 
         ctx.builder
-            .const_i32(ctx.start_of_current_instruction as i32);
+            .const_i32(ctx.start_of_current_instruction as i32 & 0xFFF);
 
         match bits {
             BitSize::BYTE => {
@@ -1410,7 +1415,7 @@ pub fn gen_task_switch_test(ctx: &mut JitContext) {
         gen_fn1_const(
             ctx.builder,
             "task_switch_test_jit",
-            ctx.start_of_current_instruction,
+            ctx.start_of_current_instruction & 0xFFF,
         );
         ctx.builder.br(ctx.exit_with_fault_label);
     }
@@ -1432,7 +1437,7 @@ pub fn gen_task_switch_test_mmx(ctx: &mut JitContext) {
         gen_fn1_const(
             ctx.builder,
             "task_switch_test_mmx_jit",
-            ctx.start_of_current_instruction,
+            ctx.start_of_current_instruction & 0xFFF,
         );
         ctx.builder.br(ctx.exit_with_fault_label);
     }
@@ -2503,7 +2508,7 @@ pub fn gen_trigger_de(ctx: &mut JitContext) {
     gen_fn1_const(
         ctx.builder,
         "trigger_de_jit",
-        ctx.start_of_current_instruction,
+        ctx.start_of_current_instruction & 0xFFF,
     );
     gen_debug_track_jit_exit(ctx.builder, ctx.start_of_current_instruction);
     ctx.builder.br(ctx.exit_with_fault_label);
@@ -2513,7 +2518,7 @@ pub fn gen_trigger_ud(ctx: &mut JitContext) {
     gen_fn1_const(
         ctx.builder,
         "trigger_ud_jit",
-        ctx.start_of_current_instruction,
+        ctx.start_of_current_instruction & 0xFFF,
     );
     gen_debug_track_jit_exit(ctx.builder, ctx.start_of_current_instruction);
     ctx.builder.br(ctx.exit_with_fault_label);
@@ -2524,7 +2529,7 @@ pub fn gen_trigger_gp(ctx: &mut JitContext, error_code: u32) {
         ctx.builder,
         "trigger_gp_jit",
         error_code,
-        ctx.start_of_current_instruction,
+        ctx.start_of_current_instruction & 0xFFF,
     );
     gen_debug_track_jit_exit(ctx.builder, ctx.start_of_current_instruction);
     ctx.builder.br(ctx.exit_with_fault_label);
@@ -2616,7 +2621,7 @@ pub fn gen_condition_fn(ctx: &mut JitContext, condition: u8) {
 pub fn gen_move_registers_from_locals_to_memory(ctx: &mut JitContext) {
     if cfg!(feature = "profiler") {
         let instruction = memory::read32s(ctx.start_of_current_instruction) as u32;
-        ::opstats::gen_opstat_unguarded_register(ctx.builder, instruction);
+        opstats::gen_opstat_unguarded_register(ctx.builder, instruction);
     }
 
     for i in 0..8 {
@@ -2629,7 +2634,7 @@ pub fn gen_move_registers_from_locals_to_memory(ctx: &mut JitContext) {
 pub fn gen_move_registers_from_memory_to_locals(ctx: &mut JitContext) {
     if cfg!(feature = "profiler") {
         let instruction = memory::read32s(ctx.start_of_current_instruction) as u32;
-        ::opstats::gen_opstat_unguarded_register(ctx.builder, instruction);
+        opstats::gen_opstat_unguarded_register(ctx.builder, instruction);
     }
 
     for i in 0..8 {
@@ -2644,7 +2649,7 @@ pub fn gen_profiler_stat_increment(builder: &mut WasmBuilder, stat: profiler::st
     if !cfg!(feature = "profiler") {
         return;
     }
-    let addr = unsafe { profiler::stat_array.as_mut_ptr().offset(stat as isize) } as u32;
+    let addr = unsafe { &raw mut profiler::stat_array[stat as usize] } as u32;
     builder.increment_fixed_i64(addr, 1)
 }
 

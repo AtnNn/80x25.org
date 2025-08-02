@@ -1,7 +1,17 @@
-"use strict";
-
 // https://www.isdaman.com/alsos/hardware/fdc/floppy.htm
 // https://wiki.osdev.org/Floppy_Disk_Controller
+
+import { LOG_FLOPPY } from "./const.js";
+import { h } from "./lib.js";
+import { dbg_assert, dbg_log } from "./log.js";
+import { CMOS_FLOPPY_DRIVE_TYPE } from "./rtc.js";
+import { SyncBuffer } from "./buffer.js";
+
+
+// For Types Only
+import { CPU } from "./cpu.js";
+import { DMA } from "./dma.js";
+import { IO } from "./io.js";
 
 const DIR_DOOR = 0x80;
 const ST1_NID  = 1 << 0;
@@ -12,7 +22,7 @@ const ST1_NDAT = 1 << 2;
  *
  * @param {CPU} cpu
  */
-function FloppyController(cpu, fda_image, fdb_image)
+export function FloppyController(cpu, fda_image, fdb_image)
 {
     /** @const @type {IO|undefined} */
     this.io = cpu.io;
@@ -101,7 +111,7 @@ FloppyController.prototype.set_fda = function(fda_image)
     let floppy_size = fda_image.byteLength;
     let floppy_type = floppy_types[floppy_size];
 
-    if (!floppy_type)
+    if(!floppy_type)
     {
         floppy_size = fda_image.byteLength > 1440 * 1024 ? 2880 * 1024 : 1440 * 1024;
         floppy_type = floppy_types[floppy_size];
@@ -110,7 +120,7 @@ FloppyController.prototype.set_fda = function(fda_image)
         dbg_assert(fda_image.buffer && fda_image.buffer instanceof ArrayBuffer);
         const new_image = new Uint8Array(floppy_size);
         new_image.set(new Uint8Array(fda_image.buffer));
-        fda_image = new v86util.SyncBuffer(new_image.buffer);
+        fda_image = new SyncBuffer(new_image.buffer);
 
         dbg_log("Warning: Unkown floppy size: " + fda_image.byteLength + ", assuming " + floppy_size);
     }
@@ -276,6 +286,7 @@ FloppyController.prototype.port3F5_write = function(reg_byte)
                 this.bytes_expecting = 3;
                 break;
             case 0x04:
+            case 0x14:
                 this.next_command = this.check_drive_status;
                 this.bytes_expecting = 1;
                 break;
@@ -288,6 +299,7 @@ FloppyController.prototype.port3F5_write = function(reg_byte)
                 break;
             case 0x06:
             case 0x46:
+            case 0xC6:
             case 0xE6:
                 this.next_command = function(args) { this.do_sector(false, args); };
                 this.bytes_expecting = 8;
@@ -332,20 +344,27 @@ FloppyController.prototype.port3F2_read = function()
 
 FloppyController.prototype.port3F2_write = function(value)
 {
-    if((value & 4) === 4 && (this.dor & 4) === 0)
+    // write Digital Output Register (DOR), relevant bits here:
+    //   0x4 (nRESET):  0: RESET mode, 1: NORMAL mode
+    //   0x8 (IRQ_DMA): 0: disable IRQ/DMA, 1: enable IRQ/DMA
+    if(!(this.dor & 0x4) && (value & 0x4))
     {
-        // clear reset mode
+        // nRESET bit transition from 0 to 1: exit from RESET state
         this.status_reg0 = 0xC0;
-        this.cpu.device_raise_irq(6);
+        if(value & 0x8)
+        {
+            // raise IRQ only if IRQ_DMA bit is 1 (in new DOR value)
+            this.cpu.device_raise_irq(6);
+        }
     }
 
     dbg_log("start motors: " + h(value >> 4), LOG_FLOPPY);
     dbg_log("enable dma/irq: " + !!(value & 8), LOG_FLOPPY);
-    dbg_log("reset fdc: " + !!(value & 4), LOG_FLOPPY);
+    dbg_log("reset fdc: " + !(value & 4), LOG_FLOPPY);
     dbg_log("drive select: " + (value & 3), LOG_FLOPPY);
     if((value & 3) !== 0)
     {
-        dbg_log("guest: fdb not implemented");
+        dbg_log("guest: fdb not implemented", LOG_FLOPPY);
     }
     dbg_log("DOR = " + h(value), LOG_FLOPPY);
 
@@ -356,7 +375,7 @@ FloppyController.prototype.check_drive_status = function(args)
 {
     dbg_log("check drive status", LOG_FLOPPY);
     // do nothing if no fda
-    if (this.fda_image)
+    if(this.fda_image)
     {
         this.status_reg1 = 0;
     }
@@ -376,13 +395,13 @@ FloppyController.prototype.seek = function(args)
     dbg_log("seek", LOG_FLOPPY);
     if((args[0] & 3) !== 0)
     {
-        dbg_log("seek on fdb");
+        dbg_log("seek on fdb", LOG_FLOPPY);
         this.raise_irq();
         return;
     }
 
-    let new_cylinder = args[1];
-    let new_head = args[0] >> 2 & 1;
+    const new_cylinder = args[1];
+    const new_head = args[0] >> 2 & 1;
 
     // clear eject flag if seek takes us to a new cylinder
     if(new_cylinder !== this.last_cylinder)
@@ -390,7 +409,7 @@ FloppyController.prototype.seek = function(args)
         this.dir = 0x0;
     }
     // do nothing if no fda
-    if (this.fda_image)
+    if(this.fda_image)
     {
         this.status_reg1 = 0;
     }

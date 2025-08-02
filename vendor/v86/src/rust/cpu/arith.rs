@@ -1,23 +1,28 @@
-use cpu::cpu::*;
-use cpu::global_pointers::*;
-use cpu::memory::{read8, write8};
-use cpu::misc_instr::{getaf, getcf, getzf};
+use crate::cpu::cpu::*;
+use crate::cpu::global_pointers::*;
+use crate::cpu::memory;
+use crate::cpu::misc_instr::{getaf, getcf, getzf};
 
 fn int_log2(x: i32) -> i32 { 31 - x.leading_zeros() as i32 }
 
+fn opsize_to_mask(op_size: i32) -> i32 {
+    dbg_assert!(op_size == OPSIZE_8 || op_size == OPSIZE_16 || op_size == OPSIZE_32);
+    (2 << op_size) - 1
+}
+
 unsafe fn add(dest_operand: i32, source_operand: i32, op_size: i32) -> i32 {
-    let res = dest_operand + source_operand;
+    let res = (dest_operand + source_operand) & opsize_to_mask(op_size);
     *last_op1 = dest_operand;
-    *last_result = res & (2 << op_size) - 1;
+    *last_result = res;
     *last_op_size = op_size;
     *flags_changed = FLAGS_ALL;
     return res;
 }
 unsafe fn adc(dest_operand: i32, source_operand: i32, op_size: i32) -> i32 {
     let cf = getcf() as i32;
-    let res = dest_operand + source_operand + cf;
+    let res = (dest_operand + source_operand + cf) & opsize_to_mask(op_size);
     *last_op1 = dest_operand;
-    *last_result = res & (2 << op_size) - 1;
+    *last_result = res;
     *last_op_size = op_size;
     *flags_changed = FLAGS_ALL & !FLAG_CARRY & !FLAG_ADJUST & !FLAG_OVERFLOW;
     *flags = *flags & !FLAG_CARRY & !FLAG_ADJUST & !FLAG_OVERFLOW
@@ -28,18 +33,18 @@ unsafe fn adc(dest_operand: i32, source_operand: i32, op_size: i32) -> i32 {
     return res;
 }
 unsafe fn sub(dest_operand: i32, source_operand: i32, op_size: i32) -> i32 {
-    let res = dest_operand - source_operand;
+    let res = (dest_operand - source_operand) & opsize_to_mask(op_size);
     *last_op1 = dest_operand;
-    *last_result = res & (2 << op_size) - 1;
+    *last_result = res;
     *last_op_size = op_size;
     *flags_changed = FLAGS_ALL | FLAG_SUB;
     return res;
 }
 unsafe fn sbb(dest_operand: i32, source_operand: i32, op_size: i32) -> i32 {
     let cf = getcf() as i32;
-    let res = dest_operand - source_operand - cf;
+    let res = (dest_operand - source_operand - cf) & opsize_to_mask(op_size);
     *last_op1 = dest_operand;
-    *last_result = res & (2 << op_size) - 1;
+    *last_result = res;
     *last_op_size = op_size;
     *flags_changed = FLAGS_ALL & !FLAG_CARRY & !FLAG_ADJUST & !FLAG_OVERFLOW | FLAG_SUB;
     *flags = *flags & !FLAG_CARRY & !FLAG_ADJUST & !FLAG_OVERFLOW
@@ -88,18 +93,18 @@ pub unsafe fn cmp16(x: i32, y: i32) {
 pub unsafe fn cmp32(x: i32, y: i32) { sub(x, y, OPSIZE_32); }
 unsafe fn inc(dest_operand: i32, op_size: i32) -> i32 {
     *flags = *flags & !1 | getcf() as i32;
-    let res = dest_operand + 1;
+    let res = (dest_operand + 1) & opsize_to_mask(op_size);
     *last_op1 = dest_operand;
-    *last_result = res & (2 << op_size) - 1;
+    *last_result = res;
     *last_op_size = op_size;
     *flags_changed = FLAGS_ALL & !1;
     return res;
 }
 unsafe fn dec(dest_operand: i32, op_size: i32) -> i32 {
     *flags = *flags & !1 | getcf() as i32;
-    let res = dest_operand - 1;
+    let res = (dest_operand - 1) & opsize_to_mask(op_size);
     *last_op1 = dest_operand;
-    *last_result = res & (2 << op_size) - 1;
+    *last_result = res;
     *last_op_size = op_size;
     *flags_changed = FLAGS_ALL & !1 | FLAG_SUB;
     return res;
@@ -445,7 +450,7 @@ pub unsafe fn rol8(dest_operand: i32, mut count: i32) -> i32 {
         *flags = *flags & !1 & !FLAG_OVERFLOW
             | result & 1
             | (result << 11 ^ result << 4) & FLAG_OVERFLOW;
-        return result;
+        return result & 0xFF;
     };
 }
 #[no_mangle]
@@ -461,7 +466,7 @@ pub unsafe fn rol16(dest_operand: i32, mut count: i32) -> i32 {
         *flags = *flags & !1 & !FLAG_OVERFLOW
             | result & 1
             | (result << 11 ^ result >> 4) & FLAG_OVERFLOW;
-        return result;
+        return result & 0xFFFF;
     };
 }
 #[no_mangle]
@@ -493,7 +498,7 @@ pub unsafe fn rcl8(dest_operand: i32, mut count: i32) -> i32 {
         *flags = *flags & !1 & !FLAG_OVERFLOW
             | result >> 8 & 1
             | (result << 3 ^ result << 4) & FLAG_OVERFLOW;
-        return result;
+        return result & 0xFF;
     };
 }
 #[no_mangle]
@@ -510,7 +515,7 @@ pub unsafe fn rcl16(dest_operand: i32, mut count: i32) -> i32 {
         *flags = *flags & !1 & !FLAG_OVERFLOW
             | result >> 16 & 1
             | (result >> 5 ^ result >> 4) & FLAG_OVERFLOW;
-        return result;
+        return result & 0xFFFF;
     };
 }
 #[no_mangle]
@@ -520,7 +525,7 @@ pub unsafe fn rcl32(dest_operand: i32, count: i32) -> i32 {
         return dest_operand;
     }
     else {
-        let mut result: i32 = dest_operand << count | (getcf() as i32) << count - 1;
+        let mut result = dest_operand << count | (getcf() as i32) << count - 1;
         if count > 1 {
             result = (result as u32 | dest_operand as u32 >> 33 - count) as i32
         }
@@ -543,7 +548,7 @@ pub unsafe fn ror8(dest_operand: i32, mut count: i32) -> i32 {
         *flags = *flags & !1 & !FLAG_OVERFLOW
             | result >> 7 & 1
             | (result << 4 ^ result << 5) & FLAG_OVERFLOW;
-        return result;
+        return result & 0xFF;
     };
 }
 #[no_mangle]
@@ -559,7 +564,7 @@ pub unsafe fn ror16(dest_operand: i32, mut count: i32) -> i32 {
         *flags = *flags & !1 & !FLAG_OVERFLOW
             | result >> 15 & 1
             | (result >> 4 ^ result >> 3) & FLAG_OVERFLOW;
-        return result;
+        return result & 0xFFFF;
     };
 }
 #[no_mangle]
@@ -591,7 +596,7 @@ pub unsafe fn rcr8(dest_operand: i32, mut count: i32) -> i32 {
         *flags = *flags & !1 & !FLAG_OVERFLOW
             | result >> 8 & 1
             | (result << 4 ^ result << 5) & FLAG_OVERFLOW;
-        return result;
+        return result & 0xFF;
     };
 }
 #[no_mangle]
@@ -608,7 +613,7 @@ pub unsafe fn rcr16(dest_operand: i32, mut count: i32) -> i32 {
         *flags = *flags & !1 & !FLAG_OVERFLOW
             | result >> 16 & 1
             | (result >> 4 ^ result >> 3) & FLAG_OVERFLOW;
-        return result;
+        return result & 0xFFFF;
     };
 }
 #[no_mangle]
@@ -618,7 +623,7 @@ pub unsafe fn rcr32(dest_operand: i32, count: i32) -> i32 {
         return dest_operand;
     }
     else {
-        let mut result: i32 =
+        let mut result =
             (dest_operand as u32 >> count | ((getcf() as i32) << 32 - count) as u32) as i32;
         if count > 1 {
             result |= dest_operand << 33 - count
@@ -762,7 +767,7 @@ pub unsafe fn shl8(dest_operand: i32, count: i32) -> i32 {
         *flags = *flags & !1 & !FLAG_OVERFLOW
             | result >> 8 & 1
             | (result << 3 ^ result << 4) & FLAG_OVERFLOW;
-        return result;
+        return result & 0xFF;
     };
 }
 #[no_mangle]
@@ -779,7 +784,7 @@ pub unsafe fn shl16(dest_operand: i32, count: i32) -> i32 {
         *flags = *flags & !1 & !FLAG_OVERFLOW
             | result >> 16 & 1
             | (result >> 5 ^ result >> 4) & FLAG_OVERFLOW;
-        return result;
+        return result & 0xFFFF;
     };
 }
 pub unsafe fn shl32(dest_operand: i32, count: i32) -> i32 {
@@ -867,7 +872,7 @@ pub unsafe fn sar8(dest_operand: i32, count: i32) -> i32 {
         *last_result = result;
         *last_op_size = OPSIZE_8;
         *flags_changed = FLAGS_ALL & !1 & !FLAG_OVERFLOW;
-        return result;
+        return result & 0xFF;
     };
 }
 #[no_mangle]
@@ -889,7 +894,7 @@ pub unsafe fn sar16(dest_operand: i32, count: i32) -> i32 {
         *last_result = result;
         *last_op_size = OPSIZE_16;
         *flags_changed = FLAGS_ALL & !1 & !FLAG_OVERFLOW;
-        return result;
+        return result & 0xFFFF;
     };
 }
 pub unsafe fn sar32(dest_operand: i32, count: i32) -> i32 {
@@ -927,7 +932,7 @@ pub unsafe fn shrd16(dest_operand: i32, source_operand: i32, count: i32) -> i32 
         *last_op_size = OPSIZE_16;
         *flags_changed = FLAGS_ALL & !1 & !FLAG_OVERFLOW;
         *flags = *flags & !FLAG_OVERFLOW | (result ^ dest_operand) >> 4 & FLAG_OVERFLOW;
-        return result;
+        return result & 0xFFFF;
     };
 }
 #[no_mangle]
@@ -966,7 +971,7 @@ pub unsafe fn shld16(dest_operand: i32, source_operand: i32, count: i32) -> i32 
         *last_op_size = OPSIZE_16;
         *flags_changed = FLAGS_ALL & !1 & !FLAG_OVERFLOW;
         *flags = *flags & !FLAG_OVERFLOW | (*flags & 1 ^ result >> 15 & 1) << 11;
-        return result;
+        return result & 0xFFFF;
     };
 }
 #[no_mangle]
@@ -1019,27 +1024,27 @@ pub unsafe fn bt_mem(virt_addr: i32, mut bit_offset: i32) {
 }
 pub unsafe fn btc_mem(virt_addr: i32, mut bit_offset: i32) {
     let phys_addr = return_on_pagefault!(translate_address_write(virt_addr + (bit_offset >> 3)));
-    let bit_base = read8(phys_addr);
+    let bit_base = memory::read8(phys_addr);
     bit_offset &= 7;
     *flags = *flags & !1 | bit_base >> bit_offset & 1;
     *flags_changed &= !1;
-    write8(phys_addr, bit_base ^ 1 << bit_offset);
+    memory::write8(phys_addr, bit_base ^ 1 << bit_offset);
 }
 pub unsafe fn btr_mem(virt_addr: i32, mut bit_offset: i32) {
     let phys_addr = return_on_pagefault!(translate_address_write(virt_addr + (bit_offset >> 3)));
-    let bit_base = read8(phys_addr);
+    let bit_base = memory::read8(phys_addr);
     bit_offset &= 7;
     *flags = *flags & !1 | bit_base >> bit_offset & 1;
     *flags_changed &= !1;
-    write8(phys_addr, bit_base & !(1 << bit_offset));
+    memory::write8(phys_addr, bit_base & !(1 << bit_offset));
 }
 pub unsafe fn bts_mem(virt_addr: i32, mut bit_offset: i32) {
     let phys_addr = return_on_pagefault!(translate_address_write(virt_addr + (bit_offset >> 3)));
-    let bit_base = read8(phys_addr);
+    let bit_base = memory::read8(phys_addr);
     bit_offset &= 7;
     *flags = *flags & !1 | bit_base >> bit_offset & 1;
     *flags_changed &= !1;
-    write8(phys_addr, bit_base | 1 << bit_offset);
+    memory::write8(phys_addr, bit_base | 1 << bit_offset);
 }
 
 #[no_mangle]
@@ -1132,7 +1137,7 @@ pub unsafe fn saturate_sw_to_ub(v: u16) -> u8 {
 }
 pub unsafe fn saturate_sw_to_sb(v: i32) -> u8 {
     dbg_assert!(v as u32 & 0xFFFF_0000 == 0);
-    let mut ret: i32 = v;
+    let mut ret = v;
     if ret > 65408 {
         ret = ret & 255
     }
@@ -1146,7 +1151,7 @@ pub unsafe fn saturate_sw_to_sb(v: i32) -> u8 {
     return ret as u8;
 }
 pub unsafe fn saturate_sd_to_sw(v: u32) -> u16 {
-    let mut ret: u32 = v;
+    let mut ret = v;
     if ret > 4294934528 {
         ret = ret & 0xFFFF
     }
@@ -1160,7 +1165,7 @@ pub unsafe fn saturate_sd_to_sw(v: u32) -> u16 {
     return ret as u16;
 }
 pub unsafe fn saturate_sd_to_sb(v: u32) -> i8 {
-    let mut ret: u32 = v;
+    let mut ret = v;
     if ret > 0xFFFFFF80 {
         ret = ret & 255
     }
@@ -1174,7 +1179,7 @@ pub unsafe fn saturate_sd_to_sb(v: u32) -> i8 {
     return ret as i8;
 }
 pub unsafe fn saturate_sd_to_ub(v: i32) -> i32 {
-    let mut ret: i32 = v;
+    let mut ret = v;
     if ret < 0 {
         ret = 0
     }
@@ -1182,7 +1187,7 @@ pub unsafe fn saturate_sd_to_ub(v: i32) -> i32 {
     return ret;
 }
 pub unsafe fn saturate_ud_to_ub(v: u32) -> u8 {
-    let mut ret: u32 = v;
+    let mut ret = v;
     if ret > 255 {
         ret = 255
     }
@@ -1190,7 +1195,7 @@ pub unsafe fn saturate_ud_to_ub(v: u32) -> u8 {
     return ret as u8;
 }
 pub unsafe fn saturate_uw(v: u32) -> u16 {
-    let mut ret: u32 = v;
+    let mut ret = v;
     if ret > 0x7FFFFFFF {
         ret = 0
     }

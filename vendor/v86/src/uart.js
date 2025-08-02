@@ -1,4 +1,10 @@
-"use strict";
+import { LOG_SERIAL } from "./const.js";
+import { h } from "./lib.js";
+import { dbg_log } from "./log.js";
+
+// For Types Only
+import { CPU } from "./cpu.js";
+import { BusConnector } from "./bus.js";
 
 /*
  * Serial ports
@@ -7,35 +13,33 @@
  * https://www.freebsd.org/doc/en/articles/serial-uart/
  */
 
-/** @const */
-var DLAB = 0x80;
+const DLAB = 0x80;
 
+const UART_IER_MSI  = 0x08; /* Modem Status Changed int. */
+const UART_IER_THRI = 0x02; /* Enable Transmitter holding register int. */
+const UART_IER_RDI = 0x01; /* Enable receiver data interrupt */
 
-/** @const */ var UART_IER_MSI  = 0x08; /* Modem Status Changed int. */
-/** @const */ var UART_IER_THRI = 0x02; /* Enable Transmitter holding register int. */
-/** @const */ var UART_IER_RDI = 0x01; /* Enable receiver data interrupt */
+const UART_IIR_MSI = 0x00; /* Modem status interrupt (Low priority) */
+const UART_IIR_NO_INT = 0x01;
+const UART_IIR_THRI = 0x02; /* Transmitter holding register empty */
+const UART_IIR_RDI = 0x04; /* Receiver data interrupt */
+const UART_IIR_RLSI = 0x06; /* Receiver line status interrupt (High p.) */
+const UART_IIR_CTI = 0x0c; /* Character timeout */
 
-/** @const */var UART_IIR_MSI = 0x00; /* Modem status interrupt (Low priority) */
-/** @const */var UART_IIR_NO_INT = 0x01;
-/** @const */var UART_IIR_THRI = 0x02; /* Transmitter holding register empty */
-/** @const */var UART_IIR_RDI = 0x04; /* Receiver data interrupt */
-/** @const */var UART_IIR_RLSI = 0x06; /* Receiver line status interrupt (High p.) */
-/** @const */var UART_IIR_CTI = 0x0c; /* Character timeout */
-
-/** @const */ var UART_LSR_DATA_READY        = 0x1;  // data available
-/** @const */ var UART_LSR_TX_EMPTY        = 0x20; // TX (THR) buffer is empty
-/** @const */ var UART_LSR_TRANSMITTER_EMPTY = 0x40; // TX empty and line is idle
+const UART_LSR_DATA_READY        = 0x1;  // data available
+const UART_LSR_TX_EMPTY        = 0x20; // TX (THR) buffer is empty
+const UART_LSR_TRANSMITTER_EMPTY = 0x40; // TX empty and line is idle
 
 // Modem status register
-/** @const */ var UART_MSR_DCD = 0x7; // Data Carrier Detect
-/** @const */ var UART_MSR_RI = 0x6; // Ring Indicator
-/** @const */ var UART_MSR_DSR = 0x5; // Data Set Ready
-/** @const */ var UART_MSR_CTS = 0x4; // Clear To Send
+const UART_MSR_DCD = 0x7; // Data Carrier Detect
+const UART_MSR_RI = 0x6; // Ring Indicator
+const UART_MSR_DSR = 0x5; // Data Set Ready
+const UART_MSR_CTS = 0x4; // Clear To Send
 // Delta bits
-/** @const */ var UART_MSR_DDCD = 0x3; // Delta DCD
-/** @const */ var UART_MSR_TERI = 0x2; // Trailing Edge RI
-/** @const */ var UART_MSR_DDSR = 0x1; // Delta DSR
-/** @const */ var UART_MSR_DCTS = 0x0; // Delta CTS
+const UART_MSR_DDCD = 0x3; // Delta DCD
+const UART_MSR_TERI = 0x2; // Trailing Edge RI
+const UART_MSR_DDSR = 0x1; // Delta DSR
+const UART_MSR_DCTS = 0x0; // Delta CTS
 
 
 /**
@@ -44,7 +48,7 @@ var DLAB = 0x80;
  * @param {number} port
  * @param {BusConnector} bus
  */
-function UART(cpu, port, bus)
+export function UART(cpu, port, bus)
 {
     /** @const @type {BusConnector} */
     this.bus = bus;
@@ -228,7 +232,7 @@ function UART(cpu, port, bus)
         var ret = this.iir & 0xF;
         dbg_log("read interrupt identification: " + h(this.iir), LOG_SERIAL);
 
-        if (this.iir == UART_IIR_THRI) {
+        if(this.iir === UART_IIR_THRI) {
             this.ClearInterrupt(UART_IIR_THRI);
         }
 
@@ -332,19 +336,19 @@ UART.prototype.set_state = function(state)
 };
 
 UART.prototype.CheckInterrupt = function() {
-    if ((this.ints & (1 << UART_IIR_CTI))  && (this.ier & UART_IER_RDI)) {
+    if((this.ints & (1 << UART_IIR_CTI))  && (this.ier & UART_IER_RDI)) {
         this.iir = UART_IIR_CTI;
         this.cpu.device_raise_irq(this.irq);
     } else
-    if ((this.ints & (1 << UART_IIR_RDI))  && (this.ier & UART_IER_RDI)) {
+    if((this.ints & (1 << UART_IIR_RDI))  && (this.ier & UART_IER_RDI)) {
         this.iir = UART_IIR_RDI;
         this.cpu.device_raise_irq(this.irq);
     } else
-    if ((this.ints & (1 << UART_IIR_THRI)) && (this.ier & UART_IER_THRI)) {
+    if((this.ints & (1 << UART_IIR_THRI)) && (this.ier & UART_IER_THRI)) {
         this.iir = UART_IIR_THRI;
         this.cpu.device_raise_irq(this.irq);
     } else
-    if ((this.ints & (1 << UART_IIR_MSI))  && (this.ier & UART_IER_MSI)) {
+    if((this.ints & (1 << UART_IIR_MSI))  && (this.ier & UART_IER_MSI)) {
         this.iir = UART_IIR_MSI;
         this.cpu.device_raise_irq(this.irq);
     } else {

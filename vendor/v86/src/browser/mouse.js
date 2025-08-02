@@ -1,14 +1,16 @@
-"use strict";
+import { dbg_log } from "../log.js";
+
+// For Types Only
+import { BusConnector } from "../bus.js";
 
 /**
  * @constructor
  *
  * @param {BusConnector} bus
  */
-function MouseAdapter(bus, screen_container)
+export function MouseAdapter(bus, screen_container)
 {
-    /** @const */
-    var SPEED_FACTOR = 0.15;
+    const SPEED_FACTOR = 1;
 
     var left_down = false,
         right_down = false,
@@ -218,12 +220,15 @@ function MouseAdapter(bus, screen_container)
 
         delta_y = -delta_y;
 
+        // NOTE: affected by https://issues.chromium.org/issues/40737979
+        //       Causes cursor jumps on multi-monitor and/or 120+ HZ monitors
+
         mouse.bus.send("mouse-delta", [delta_x, delta_y]);
 
         if(screen_container)
         {
-            let absolute_x = e.pageX - screen_container.offsetLeft;
-            let absolute_y = e.pageY - screen_container.offsetTop;
+            const absolute_x = e.pageX - screen_container.offsetLeft;
+            const absolute_y = e.pageY - screen_container.offsetTop;
             mouse.bus.send("mouse-absolute", [
                 absolute_x, absolute_y, screen_container.offsetWidth, screen_container.offsetHeight]);
         }

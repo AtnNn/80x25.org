@@ -6,7 +6,7 @@
 [subrepo]
 	remote = https://github.com/copy/v86
 	branch = master
-	commit = 8064e19dac7d1b914852ec618a52e38c520c17e8
-	parent = d7dcdf9ba50921cb310bd00abe8a61c40d752fed
+	commit = 51bf5a63dcc34f806cdc3c182c383d770e76e0cf
+	parent = 0fbbdec591dc85abc98433b4ca888d59bc441906
 	method = merge
 	cmdver = 0.4.6

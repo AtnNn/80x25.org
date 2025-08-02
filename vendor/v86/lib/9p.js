@@ -4,23 +4,41 @@
 // Implementation of the 9p filesystem device following the
 // 9P2000.L protocol ( https://code.google.com/p/diod/wiki/protocol )
 
-"use strict";
+import { LOG_9P } from "./../src/const.js";
+import { VirtIO, VIRTIO_F_VERSION_1, VIRTIO_F_RING_EVENT_IDX, VIRTIO_F_RING_INDIRECT_DESC } from "../src/virtio.js";
+import { S_IFREG, S_IFDIR, STATUS_UNLINKED } from "./filesystem.js";
+import * as marshall from "../lib/marshall.js";
+import { dbg_log, dbg_assert } from "../src/log.js";
+import { h } from "../src/lib.js";
+
+// For Types Only
+import { CPU } from "../src/cpu.js";
+import { BusConnector } from "../src/bus.js";
+import { FS } from "./filesystem.js";
+
+/**
+ * @const
+ * More accurate filenames in 9p debug messages at the cost of performance.
+ */
+const TRACK_FILENAMES = false;
 
 // Feature bit (bit position) for mount tag.
 const VIRTIO_9P_F_MOUNT_TAG = 0;
 // Assumed max tag length in bytes.
 const VIRTIO_9P_MAX_TAGLEN = 254;
 
+const MAX_REPLYBUFFER_SIZE = 16 * 1024 * 1024;
+
 // TODO
 // flush
 
-var EPERM = 1;       /* Operation not permitted */
-var ENOENT = 2;      /* No such file or directory */
-var EEXIST = 17;      /* File exists */
-var EINVAL = 22;     /* Invalid argument */
-var EOPNOTSUPP = 95;  /* Operation is not supported */
-var ENOTEMPTY = 39;  /* Directory not empty */
-var EPROTO    = 71;  /* Protocol error */
+export const EPERM = 1;       /* Operation not permitted */
+export const ENOENT = 2;      /* No such file or directory */
+export const EEXIST = 17;      /* File exists */
+export const EINVAL = 22;     /* Invalid argument */
+export const EOPNOTSUPP = 95;  /* Operation is not supported */
+export const ENOTEMPTY = 39;  /* Directory not empty */
+export const EPROTO    = 71;  /* Protocol error */
 
 var P9_SETATTR_MODE = 0x00000001;
 var P9_SETATTR_UID = 0x00000002;
@@ -47,22 +65,27 @@ var P9_STAT_MODE_SETUID = 0x00080000;
 var P9_STAT_MODE_SETGID = 0x00040000;
 var P9_STAT_MODE_SETVTX = 0x00010000;
 
-const P9_LOCK_TYPE_RDLCK = 0;
-const P9_LOCK_TYPE_WRLCK = 1;
-const P9_LOCK_TYPE_UNLCK = 2;
-const P9_LOCK_TYPES = Object.freeze(["shared", "exclusive", "unlock"]);
+export const P9_LOCK_TYPE_RDLCK = 0;
+export const P9_LOCK_TYPE_WRLCK = 1;
+export const P9_LOCK_TYPE_UNLCK = 2;
+const P9_LOCK_TYPES = ["shared", "exclusive", "unlock"];
 
 const P9_LOCK_FLAGS_BLOCK = 1;
 const P9_LOCK_FLAGS_RECLAIM = 2;
 
-const P9_LOCK_SUCCESS = 0;
-const P9_LOCK_BLOCKED = 1;
-const P9_LOCK_ERROR = 2;
-const P9_LOCK_GRACE = 3;
+export const P9_LOCK_SUCCESS = 0;
+export const P9_LOCK_BLOCKED = 1;
+export const P9_LOCK_ERROR = 2;
+export const P9_LOCK_GRACE = 3;
 
 var FID_NONE = -1;
 var FID_INODE = 1;
 var FID_XATTR = 2;
+
+function range(size)
+{
+    return Array.from(Array(size).keys());
+}
 
 /**
  * @constructor
@@ -70,7 +93,7 @@ var FID_XATTR = 2;
  * @param {FS} filesystem
  * @param {CPU} cpu
  */
-function Virtio9p(filesystem, cpu, bus) {
+export function Virtio9p(filesystem, cpu, bus) {
     /** @type {FS} */
     this.fs = filesystem;
 
@@ -154,7 +177,7 @@ function Virtio9p(filesystem, cpu, bus) {
                     read: () => this.configspace_taglen,
                     write: data => { /* read only */ },
                 },
-            ].concat(v86util.range(VIRTIO_9P_MAX_TAGLEN).map(index =>
+            ].concat(range(VIRTIO_9P_MAX_TAGLEN).map(index =>
                 ({
                     bytes: 1,
                     name: "mount tag name " + index,
@@ -207,7 +230,7 @@ Virtio9p.prototype.set_state = function(state)
 // Note: dbg_name is only used for debugging messages and may not be the same as the filename,
 // since it is not synchronised with renames done outside of 9p. Hard-links, linking and unlinking
 // operations also mean that having a single filename no longer makes sense.
-// Set TRACK_FILENAMES = true (in config.js) to sync dbg_name during 9p renames.
+// Set TRACK_FILENAMES = true to sync dbg_name during 9p renames.
 Virtio9p.prototype.Createfid = function(inodeid, type, uid, dbg_name) {
     return {inodeid, type, uid, dbg_name};
 };
@@ -220,21 +243,21 @@ Virtio9p.prototype.update_dbg_name = function(idx, newname)
     }
 };
 
-Virtio9p.prototype.Reset = function() {
+Virtio9p.prototype.reset = function() {
     this.fids = [];
+    this.virtio.reset();
 };
 
 
 Virtio9p.prototype.BuildReply = function(id, tag, payloadsize) {
     dbg_assert(payloadsize >= 0, "9P: Negative payload size");
     marshall.Marshall(["w", "b", "h"], [payloadsize+7, id+1, tag], this.replybuffer, 0);
-    if ((payloadsize+7) >= this.replybuffer.length) {
-        message.Debug("Error in 9p: payloadsize exceeds maximum length");
+    if((payloadsize+7) >= this.replybuffer.length) {
+        dbg_log("Error in 9p: payloadsize exceeds maximum length", LOG_9P);
     }
     //for(var i=0; i<payload.length; i++)
     //    this.replybuffer[7+i] = payload[i];
     this.replybuffersize = payloadsize+7;
-    return;
 };
 
 Virtio9p.prototype.SendError = function (tag, errormsg, errorcode) {
@@ -260,7 +283,7 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
     var size = header[0];
     var id = header[1];
     var tag = header[2];
-    //message.Debug("size:" + size + " id:" + id + " tag:" + tag);
+    //dbg_log("size:" + size + " id:" + id + " tag:" + tag, LOG_9P);
 
     switch(id)
     {
@@ -288,16 +311,16 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var req = marshall.Unmarshall(["w", "w"], buffer, state);
             var fid = req[0];
             var mode = req[1];
-            message.Debug("[open] fid=" + fid + ", mode=" + mode);
+            dbg_log("[open] fid=" + fid + ", mode=" + mode, LOG_9P);
             var idx = this.fids[fid].inodeid;
             var inode = this.fs.GetInode(idx);
-            message.Debug("file open " + this.fids[fid].dbg_name);
-            //if (inode.status == STATUS_LOADING) return;
+            dbg_log("file open " + this.fids[fid].dbg_name, LOG_9P);
+            //if (inode.status === STATUS_LOADING) return;
             var ret = this.fs.OpenInode(idx, mode);
 
             this.fs.AddEvent(this.fids[fid].inodeid,
                 function() {
-                    message.Debug("file opened " + this.fids[fid].dbg_name + " tag:"+tag);
+                    dbg_log("file opened " + this.fids[fid].dbg_name + " tag:"+tag, LOG_9P);
                     var req = [];
                     req[0] = inode.qid;
                     req[1] = this.msize - 24;
@@ -313,7 +336,7 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var dfid = req[0];
             var fid = req[1];
             var name = req[2];
-            message.Debug("[link] dfid=" + dfid + ", name=" + name);
+            dbg_log("[link] dfid=" + dfid + ", name=" + name, LOG_9P);
 
             var ret = this.fs.Link(this.fids[dfid].inodeid, this.fids[fid].inodeid, name);
 
@@ -341,7 +364,7 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var name = req[1];
             var symgt = req[2];
             var gid = req[3];
-            message.Debug("[symlink] fid=" + fid + ", name=" + name + ", symgt=" + symgt + ", gid=" + gid);
+            dbg_log("[symlink] fid=" + fid + ", name=" + name + ", symgt=" + symgt + ", gid=" + gid, LOG_9P);
             var idx = this.fs.CreateSymlink(name, this.fids[fid].inodeid, symgt);
             var inode = this.fs.GetInode(idx);
             inode.uid = this.fids[fid].uid;
@@ -359,10 +382,11 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var major = req[3];
             var minor = req[4];
             var gid = req[5];
-            message.Debug("[mknod] fid=" + fid + ", name=" + name + ", major=" + major + ", minor=" + minor+ "");
+            dbg_log("[mknod] fid=" + fid + ", name=" + name + ", major=" + major + ", minor=" + minor+ "", LOG_9P);
             var idx = this.fs.CreateNode(name, this.fids[fid].inodeid, major, minor);
             var inode = this.fs.GetInode(idx);
             inode.mode = mode;
+            //inode.mode = mode | S_IFCHR; // XXX: fails "Mknod - fifo" test
             inode.uid = this.fids[fid].uid;
             inode.gid = gid;
             marshall.Marshall(["Q"], [inode.qid], this.replybuffer, 7);
@@ -375,7 +399,7 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var req = marshall.Unmarshall(["w"], buffer, state);
             var fid = req[0];
             var inode = this.fs.GetInode(this.fids[fid].inodeid);
-            message.Debug("[readlink] fid=" + fid + " name=" + this.fids[fid].dbg_name + " target=" + inode.symlink);
+            dbg_log("[readlink] fid=" + fid + " name=" + this.fids[fid].dbg_name + " target=" + inode.symlink, LOG_9P);
             size = marshall.Marshall(["s"], [inode.symlink], this.replybuffer, 7);
             this.BuildReply(id, tag, size);
             this.SendReply(bufchain);
@@ -388,7 +412,7 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var name = req[1];
             var mode = req[2];
             var gid = req[3];
-            message.Debug("[mkdir] fid=" + fid + ", name=" + name + ", mode=" + mode + ", gid=" + gid);
+            dbg_log("[mkdir] fid=" + fid + ", name=" + name + ", mode=" + mode + ", gid=" + gid, LOG_9P);
             var idx = this.fs.CreateDirectory(name, this.fids[fid].inodeid);
             var inode = this.fs.GetInode(idx);
             inode.mode = mode | S_IFDIR;
@@ -407,7 +431,7 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var mode = req[3];
             var gid = req[4];
             this.bus.send("9p-create", [name, this.fids[fid].inodeid]);
-            message.Debug("[create] fid=" + fid + ", name=" + name + ", flags=" + flags + ", mode=" + mode + ", gid=" + gid);
+            dbg_log("[create] fid=" + fid + ", name=" + name + ", flags=" + flags + ", mode=" + mode + ", gid=" + gid, LOG_9P);
             var idx = this.fs.CreateFile(name, this.fids[fid].inodeid);
             this.fids[fid].inodeid = idx;
             this.fids[fid].type = FID_INODE;
@@ -415,7 +439,7 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var inode = this.fs.GetInode(idx);
             inode.uid = this.fids[fid].uid;
             inode.gid = gid;
-            inode.mode = mode;
+            inode.mode = mode | S_IFREG;
             marshall.Marshall(["Q", "w"], [inode.qid, this.msize - 24], this.replybuffer, 7);
             this.BuildReply(id, tag, 13+4);
             this.SendReply(bufchain);
@@ -427,7 +451,7 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var flags = req[2];
             var lock_length = req[4] === 0 ? Infinity : req[4];
             var lock_request = this.fs.DescribeLock(req[1], req[3], lock_length, req[5], req[6]);
-            message.Debug("[lock] fid=" + fid +
+            dbg_log("[lock] fid=" + fid +
                 ", type=" + P9_LOCK_TYPES[lock_request.type] + ", start=" + lock_request.start +
                 ", length=" + lock_request.length + ", proc_id=" + lock_request.proc_id);
 
@@ -443,7 +467,7 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var fid = req[0];
             var lock_length = req[3] === 0 ? Infinity : req[3];
             var lock_request = this.fs.DescribeLock(req[1], req[2], lock_length, req[4], req[5]);
-            message.Debug("[getlock] fid=" + fid +
+            dbg_log("[getlock] fid=" + fid +
                 ", type=" + P9_LOCK_TYPES[lock_request.type] + ", start=" + lock_request.start +
                 ", length=" + lock_request.length + ", proc_id=" + lock_request.proc_id);
 
@@ -469,16 +493,14 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var req = marshall.Unmarshall(["w", "d"], buffer, state);
             var fid = req[0];
             var inode = this.fs.GetInode(this.fids[fid].inodeid);
-            message.Debug("[getattr]: fid=" + fid + " name=" + this.fids[fid].dbg_name + " request mask=" + req[1]);
+            dbg_log("[getattr]: fid=" + fid + " name=" + this.fids[fid].dbg_name + " request mask=" + req[1], LOG_9P);
             if(!inode || inode.status === STATUS_UNLINKED)
             {
-                message.Debug("getattr: unlinked");
+                dbg_log("getattr: unlinked", LOG_9P);
                 this.SendError(tag, "No such file or directory", ENOENT);
                 this.SendReply(bufchain);
                 break;
             }
-            req[0] |= 0x1000; // P9_STATS_GEN
-
             req[0] = req[1]; // request mask
             req[1] = inode.qid;
 
@@ -527,32 +549,33 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             ], buffer, state);
             var fid = req[0];
             var inode = this.fs.GetInode(this.fids[fid].inodeid);
-            message.Debug("[setattr]: fid=" + fid + " request mask=" + req[1] + " name=" + this.fids[fid].dbg_name);
-            if (req[1] & P9_SETATTR_MODE) {
+            dbg_log("[setattr]: fid=" + fid + " request mask=" + req[1] + " name=" + this.fids[fid].dbg_name, LOG_9P);
+            if(req[1] & P9_SETATTR_MODE) {
+                // XXX: check mode (S_IFREG or S_IFDIR or similar should be set)
                 inode.mode = req[2];
             }
-            if (req[1] & P9_SETATTR_UID) {
+            if(req[1] & P9_SETATTR_UID) {
                 inode.uid = req[3];
             }
-            if (req[1] & P9_SETATTR_GID) {
+            if(req[1] & P9_SETATTR_GID) {
                 inode.gid = req[4];
             }
-            if (req[1] & P9_SETATTR_ATIME) {
+            if(req[1] & P9_SETATTR_ATIME) {
                 inode.atime = Math.floor((new Date()).getTime()/1000);
             }
-            if (req[1] & P9_SETATTR_MTIME) {
+            if(req[1] & P9_SETATTR_MTIME) {
                 inode.mtime = Math.floor((new Date()).getTime()/1000);
             }
-            if (req[1] & P9_SETATTR_CTIME) {
+            if(req[1] & P9_SETATTR_CTIME) {
                 inode.ctime = Math.floor((new Date()).getTime()/1000);
             }
-            if (req[1] & P9_SETATTR_ATIME_SET) {
+            if(req[1] & P9_SETATTR_ATIME_SET) {
                 inode.atime = req[6];
             }
-            if (req[1] & P9_SETATTR_MTIME_SET) {
+            if(req[1] & P9_SETATTR_MTIME_SET) {
                 inode.mtime = req[8];
             }
-            if (req[1] & P9_SETATTR_SIZE) {
+            if(req[1] & P9_SETATTR_SIZE) {
                 await this.fs.ChangeSize(this.fids[fid].inodeid, req[5]);
             }
             this.BuildReply(id, tag, 0);
@@ -573,17 +596,17 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var offset = req[1];
             var count = req[2];
             var inode = this.fs.GetInode(this.fids[fid].inodeid);
-            if (id == 40) message.Debug("[treaddir]: fid=" + fid + " offset=" + offset + " count=" + count);
-            if (id == 116) message.Debug("[read]: fid=" + fid + " (" + this.fids[fid].dbg_name + ") offset=" + offset + " count=" + count + " fidtype=" + this.fids[fid].type);
+            if(id === 40) dbg_log("[treaddir]: fid=" + fid + " offset=" + offset + " count=" + count, LOG_9P);
+            if(id === 116) dbg_log("[read]: fid=" + fid + " (" + this.fids[fid].dbg_name + ") offset=" + offset + " count=" + count + " fidtype=" + this.fids[fid].type, LOG_9P);
             if(!inode || inode.status === STATUS_UNLINKED)
             {
-                message.Debug("read/treaddir: unlinked");
+                dbg_log("read/treaddir: unlinked", LOG_9P);
                 this.SendError(tag, "No such file or directory", ENOENT);
                 this.SendReply(bufchain);
                 break;
             }
-            if (this.fids[fid].type == FID_XATTR) {
-                if (inode.caps.length < offset+count) count = inode.caps.length - offset;
+            if(this.fids[fid].type === FID_XATTR) {
+                if(inode.caps.length < offset+count) count = inode.caps.length - offset;
                 for(var i=0; i<count; i++)
                     this.replybuffer[7+4+i] = inode.caps[offset+i];
                 marshall.Marshall(["w"], [count], this.replybuffer, 7);
@@ -595,8 +618,8 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
 
                 count = Math.min(count, this.replybuffer.length - (7 + 4));
 
-                if (inode.size < offset+count) count = inode.size - offset;
-                else if(id == 40)
+                if(inode.size < offset+count) count = inode.size - offset;
+                else if(id === 40)
                 {
                     // for directories, return whole number of dir-entries.
                     count = this.fs.RoundToDirentry(inodeid, offset + count) - offset;
@@ -631,7 +654,7 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
 
             const filename = this.fids[fid].dbg_name;
 
-            message.Debug("[write]: fid=" + fid + " (" + filename + ") offset=" + offset + " count=" + count + " fidtype=" + this.fids[fid].type);
+            dbg_log("[write]: fid=" + fid + " (" + filename + ") offset=" + offset + " count=" + count + " fidtype=" + this.fids[fid].type, LOG_9P);
             if(this.fids[fid].type === FID_XATTR)
             {
                 // XXX: xattr not supported yet. Ignore write.
@@ -658,9 +681,9 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var oldname = req[1];
             var newdirfid = req[2];
             var newname = req[3];
-            message.Debug("[renameat]: oldname=" + oldname + " newname=" + newname);
+            dbg_log("[renameat]: oldname=" + oldname + " newname=" + newname, LOG_9P);
             var ret = await this.fs.Rename(this.fids[olddirfid].inodeid, oldname, this.fids[newdirfid].inodeid, newname);
-            if (ret < 0) {
+            if(ret < 0) {
                 let error_message = "";
                 if(ret === -ENOENT) error_message = "No such file or directory";
                 else if(ret === -EPERM) error_message = "Operation not permitted";
@@ -688,15 +711,15 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var dirfd = req[0];
             var name = req[1];
             var flags = req[2];
-            message.Debug("[unlink]: dirfd=" + dirfd + " name=" + name + " flags=" + flags);
+            dbg_log("[unlink]: dirfd=" + dirfd + " name=" + name + " flags=" + flags, LOG_9P);
             var fid = this.fs.Search(this.fids[dirfd].inodeid, name);
-            if (fid == -1) {
+            if(fid === -1) {
                    this.SendError(tag, "No such file or directory", ENOENT);
                    this.SendReply(bufchain);
                    break;
             }
             var ret = this.fs.Unlink(this.fids[dirfd].inodeid, name);
-            if (ret < 0) {
+            if(ret < 0) {
                 let error_message = "";
                 if(ret === -ENOTEMPTY) error_message = "Directory not empty";
                 else if(ret === -EPERM) error_message = "Operation not permitted";
@@ -715,8 +738,12 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
 
         case 100: // version
             var version = marshall.Unmarshall(["w", "s"], buffer, state);
-            message.Debug("[version]: msize=" + version[0] + " version=" + version[1]);
-            this.msize = version[0];
+            dbg_log("[version]: msize=" + version[0] + " version=" + version[1], LOG_9P);
+            if(this.msize !== version[0])
+            {
+                this.msize = version[0];
+                this.replybuffer = new Uint8Array(Math.min(MAX_REPLYBUFFER_SIZE, this.msize*2));
+            }
             size = marshall.Marshall(["w", "s"], [this.msize, this.VERSION], this.replybuffer, 7);
             this.BuildReply(id, tag, size);
             this.SendReply(bufchain);
@@ -727,7 +754,7 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var req = marshall.Unmarshall(["w", "w", "s", "s", "w"], buffer, state);
             var fid = req[0];
             var uid = req[4];
-            message.Debug("[attach]: fid=" + fid + " afid=" + hex8(req[1]) + " uname=" + req[2] + " aname=" + req[3]);
+            dbg_log("[attach]: fid=" + fid + " afid=" + h(req[1]) + " uname=" + req[2] + " aname=" + req[3], LOG_9P);
             this.fids[fid] = this.Createfid(0, FID_INODE, uid, "");
             var inode = this.fs.GetInode(this.fids[fid].inodeid);
             marshall.Marshall(["Q"], [inode.qid], this.replybuffer, 7);
@@ -739,7 +766,7 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
         case 108: // tflush
             var req = marshall.Unmarshall(["h"], buffer, state);
             var oldtag = req[0];
-            message.Debug("[flush] " + tag);
+            dbg_log("[flush] " + tag, LOG_9P);
             //marshall.Marshall(["Q"], [inode.qid], this.replybuffer, 7);
             this.BuildReply(id, tag, 0);
             this.SendReply(bufchain);
@@ -751,8 +778,8 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var fid = req[0];
             var nwfid = req[1];
             var nwname = req[2];
-            message.Debug("[walk]: fid=" + req[0] + " nwfid=" + req[1] + " nwname=" + nwname);
-            if (nwname == 0) {
+            dbg_log("[walk]: fid=" + req[0] + " nwfid=" + req[1] + " nwname=" + nwname, LOG_9P);
+            if(nwname === 0) {
                 this.fids[nwfid] = this.Createfid(this.fids[fid].inodeid, FID_INODE, this.fids[fid].uid, this.fids[fid].dbg_name);
                 //this.fids[nwfid].inodeid = this.fids[fid].inodeid;
                 marshall.Marshall(["h"], [0], this.replybuffer, 7);
@@ -769,17 +796,17 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var offset = 7+2;
             var nwidx = 0;
             //console.log(idx, this.fs.GetInode(idx));
-            message.Debug("walk in dir " + this.fids[fid].dbg_name  + " to: " + walk.toString());
+            dbg_log("walk in dir " + this.fids[fid].dbg_name  + " to: " + walk.toString(), LOG_9P);
             for(var i=0; i<nwname; i++) {
                 idx = this.fs.Search(idx, walk[i]);
 
-                if (idx == -1) {
-                   message.Debug("Could not find: " + walk[i]);
+                if(idx === -1) {
+                   dbg_log("Could not find: " + walk[i], LOG_9P);
                    break;
                 }
                 offset += marshall.Marshall(["Q"], [this.fs.GetInode(idx).qid], this.replybuffer, offset);
                 nwidx++;
-                //message.Debug(this.fids[nwfid].inodeid);
+                //dbg_log(this.fids[nwfid].inodeid, LOG_9P);
                 //this.fids[nwfid].inodeid = idx;
                 //this.fids[nwfid].type = FID_INODE;
                 this.fids[nwfid] = this.Createfid(idx, FID_INODE, this.fids[fid].uid, walk[i]);
@@ -791,8 +818,8 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
 
         case 120: // clunk
             var req = marshall.Unmarshall(["w"], buffer, state);
-            message.Debug("[clunk]: fid=" + req[0]);
-            if (this.fids[req[0]] && this.fids[req[0]].inodeid >=  0) {
+            dbg_log("[clunk]: fid=" + req[0], LOG_9P);
+            if(this.fids[req[0]] && this.fids[req[0]].inodeid >=  0) {
                 await this.fs.CloseInode(this.fids[req[0]].inodeid);
                 this.fids[req[0]].inodeid = -1;
                 this.fids[req[0]].type = FID_NONE;
@@ -807,7 +834,7 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var name = req[1];
             var attr_size = req[2];
             var flags = req[3];
-            message.Debug("[txattrcreate]: fid=" + fid + " name=" + name + " attr_size=" + attr_size + " flags=" + flags);
+            dbg_log("[txattrcreate]: fid=" + fid + " name=" + name + " attr_size=" + attr_size + " flags=" + flags, LOG_9P);
 
             // XXX: xattr not supported yet. E.g. checks corresponding to the flags needed.
             this.fids[fid].type = FID_XATTR;
@@ -823,7 +850,7 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             var fid = req[0];
             var newfid = req[1];
             var name = req[2];
-            message.Debug("[xattrwalk]: fid=" + req[0] + " newfid=" + req[1] + " name=" + req[2]);
+            dbg_log("[xattrwalk]: fid=" + req[0] + " newfid=" + req[1] + " name=" + req[2], LOG_9P);
 
             // Workaround for Linux restarts writes until full blocksize
             this.SendError(tag, "Setxattr not supported", EOPNOTSUPP);
@@ -833,7 +860,7 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             //this.fids[newfid].inodeid = this.fids[fid].inodeid;
             //this.fids[newfid].type = FID_NONE;
             var length = 0;
-            if (name == "security.capability") {
+            if (name === "security.capability") {
                 length = this.fs.PrepareCAPs(this.fids[fid].inodeid);
                 this.fids[newfid].type = FID_XATTR;
             }
@@ -844,8 +871,8 @@ Virtio9p.prototype.ReceiveRequest = async function (bufchain) {
             break;
 
         default:
-            message.Debug("Error in Virtio9p: Unknown id " + id + " received");
-            message.Abort();
+            dbg_log("Error in Virtio9p: Unknown id " + id + " received", LOG_9P);
+            dbg_assert(false);
             //this.SendError(tag, "Operation i not supported",  EOPNOTSUPP);
             //this.SendReply(bufchain);
             break;

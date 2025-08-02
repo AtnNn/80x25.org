@@ -1,12 +1,14 @@
 #!/usr/bin/env node
-"use strict";
+
+import fs from "node:fs";
+import path from "node:path";
+import url from "node:url";
+
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 
 const BENCH_COLLECT_STATS = +process.env.BENCH_COLLECT_STATS;
+const { V86 } = await import(BENCH_COLLECT_STATS ? "../../src/main.js" : "../../build/libv86.mjs");
 
-const V86 = require(`../../build/${BENCH_COLLECT_STATS ? "libv86-debug" : "libv86"}.js`).V86;
-const print_stats = require("../../build/libv86.js").print_stats;
-const fs = require("fs");
-const path = require("path");
 const V86_ROOT = path.join(__dirname, "../..");
 
 const LOG_SERIAL = true;
@@ -40,7 +42,6 @@ else
             },
             baseurl: path.join(V86_ROOT, "/images/arch/"),
         },
-        screen_dummy: true,
         disable_jit: +process.env.DISABLE_JIT,
         log_level: 0,
     });
@@ -48,7 +49,7 @@ else
 
 emulator.bus.register("emulator-started", function()
 {
-    console.error("Booting now, please stand by");
+    console.log("Booting now, please stand by");
     start_time = Date.now();
 });
 
@@ -72,12 +73,11 @@ emulator.add_listener("serial0-output-byte", function(byte)
         const end_time = Date.now();
         const elapsed = end_time - start_time;
         console.log("Done in %dms", elapsed);
-        emulator.stop();
+        emulator.destroy();
 
         if(BENCH_COLLECT_STATS)
         {
-            const cpu = emulator.v86.cpu;
-            console.log(print_stats.stats_to_string(cpu));
+            console.log(emulator.get_instruction_stats());
         }
     }
 });

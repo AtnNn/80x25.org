@@ -1,31 +1,27 @@
 #!/usr/bin/env node
-"use strict";
+
+import assert from "node:assert/strict";
+import cluster from "node:cluster";
+import os from "node:os";
+import fs from "node:fs";
+import url from "node:url";
+
+const TEST_RELEASE_BUILD = +process.env.TEST_RELEASE_BUILD;
+const { V86 } = await import(TEST_RELEASE_BUILD ? "../../build/libv86.mjs" : "../../src/main.js");
+
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 
 process.on("unhandledRejection", exn => { throw exn; });
 
 var TIMEOUT_EXTRA_FACTOR = +process.env.TIMEOUT_EXTRA_FACTOR || 1;
 var MAX_PARALLEL_TESTS = +process.env.MAX_PARALLEL_TESTS || 4;
 var TEST_NAME = process.env.TEST_NAME;
-const TEST_RELEASE_BUILD = +process.env.TEST_RELEASE_BUILD;
 const RUN_SLOW_TESTS = +process.env.RUN_SLOW_TESTS;
 
 const VERBOSE = false;
 const LOG_SCREEN = false;
 
-try
-{
-    var V86 = require(`../../build/${TEST_RELEASE_BUILD ? "libv86" : "libv86-debug"}.js`).V86;
-}
-catch(e)
-{
-    console.error("Failed to import build/libv86-debug.js. Run `make build/libv86-debug.js first.");
-    process.exit(1);
-}
 
-const assert = require("assert").strict;
-var cluster = require("cluster");
-var os = require("os");
-var fs = require("fs");
 var root_path = __dirname + "/../..";
 
 var SCREEN_WIDTH = 80;
@@ -79,7 +75,7 @@ function send_work_to_worker(worker, message)
     }
 }
 
-if(cluster.isMaster)
+if(cluster.isPrimary)
 {
     var tests = [
         {
@@ -284,7 +280,6 @@ if(cluster.isMaster)
         },
         {
             name: "MS-DOS",
-            skip_if_disk_image_missing: true,
             hda: root_path + "/images/msdos.img",
             timeout: 90,
             expected_texts: [
@@ -293,7 +288,6 @@ if(cluster.isMaster)
         },
         {
             name: "MS-DOS (hard disk + floppy disk)",
-            skip_if_disk_image_missing: true,
             hda: root_path + "/images/msdos.img",
             fda: root_path + "/images/kolibri.img",
             boot_order: 0x132,
@@ -320,7 +314,7 @@ if(cluster.isMaster)
         },
         {
             name: "Linux bzImage",
-            bzimage: root_path + "/images/buildroot-bzimage.bin",
+            bzimage: root_path + "/images/buildroot-bzimage68.bin",
             cmdline: "auto",
             timeout: 200,
             expected_texts: [
@@ -498,7 +492,7 @@ if(cluster.isMaster)
             ].join(" "),
             filesystem: {
                 basefs: "images/fs.json",
-                baseurl: "images/arch-nongz/",
+                baseurl: "images/arch/",
             },
             expected_texts: [
                 "root@localhost",
@@ -551,6 +545,38 @@ if(cluster.isMaster)
             expect_mouse_registered: true,
         },
         {
+            name: "Arch Linux (with fda, cdrom, hda and hdb)",
+            skip_if_disk_image_missing: true,
+            timeout: 5 * 60,
+            bzimage_initrd_from_filesystem: true,
+            memory_size: 512 * 1024 * 1024,
+            cmdline: [
+                "rw apm=off vga=0x344 video=vesafb:ypan,vremap:8",
+                "root=host9p rootfstype=9p rootflags=trans=virtio,cache=loose mitigations=off",
+                "audit=0 init=/usr/bin/init-openrc net.ifnames=0 biosdevname=0",
+            ].join(" "),
+            filesystem: {
+                basefs: "images/fs.json",
+                baseurl: "images/arch/",
+            },
+            hda: root_path + "/images/w95.img",
+            hdb: root_path + "/images/FiwixOS-3.4-i386.img",
+            cdrom: root_path + "/images/dsl-4.11.rc2.iso",
+            fda: root_path + "/images/freedos722.img",
+            actions: [
+                {
+                    on_text: "root@localhost",
+                    run: "modprobe floppy && mkdir /mnt/{a,b,c,f} && mount /dev/sda1 /mnt/a && mount /dev/sdb2 /mnt/b && mount /dev/sr0 /mnt/c && mount /dev/fd0 /mnt/f && ls /mnt/*\n",
+                },
+            ],
+            expected_texts: [
+                "bin   dev  home",                          // fiwix
+                " AUTOEXEC.BAT   CONFIG.WIN   MSDOS.SYS",   // w95
+                "KNOPPIX  boot  index.html",                // DSL
+                "FDOS          README      debug.com",      // freedos
+            ],
+        },
+        {
             name: "FreeGEM",
             skip_if_disk_image_missing: true,
             timeout: 60,
@@ -589,6 +615,7 @@ if(cluster.isMaster)
                 { after: 7 * 60 * 1000, run: "\n" },
                 { after: 8 * 60 * 1000, run: "\n" },
             ],
+            acpi: true,
         },
         {
             name: "9front",
@@ -793,13 +820,13 @@ if(cluster.isMaster)
             multiboot: root_path + "/images/netbsd9.3-kernel-multiboot.img",
             expected_texts: [
                 // NOTE: doesn't success booting yet, just testing the multiboot boot
-                "[   1.0000030] isa0 at mainbus0",
+                "[   1.0000000] multiboot:",
             ],
         },
         {
             name: "Crazierl",
             skip_if_disk_image_missing: true,
-            timeout: 30,
+            timeout: 60,
             memory_size: 256 * 1024 * 1024,
             multiboot: root_path + "/images/crazierl-elf.img",
             initrd: root_path + "/images/crazierl-initrd.img",
@@ -807,6 +834,41 @@ if(cluster.isMaster)
             acpi: true,
             expected_serial_text: [
                 "Welcome to Crazierl:",
+            ],
+        },
+        {
+            name: "Fiwix",
+            skip_if_disk_image_missing: true,
+            timeout: 2 * 60,
+            memory_size: 512 * 1024 * 1024,
+            hda: root_path + "/images/FiwixOS-3.4-i386.img",
+            expect_graphical_mode: true,
+            expect_mouse_registered: true,
+            expected_texts: [
+                "(root):~#",
+            ],
+            actions: [
+                { on_text: "(root):~#", run: "/usr/games/lsdoom\n" },
+            ],
+        },
+        {
+            name: "9legacy",
+            use_small_bios: true, // has issues with 256k bios
+            skip_if_disk_image_missing: true,
+            net_device: { type: "none" }, // if netdevice is found, waits for dhcp before starting desktop
+            timeout: 5 * 60,
+            memory_size: 512 * 1024 * 1024,
+            hda: root_path + "/images/9legacy.img",
+            expect_graphical_mode: true,
+            expect_mouse_registered: true,
+            expected_texts: [
+                "Selection:",
+            ],
+            actions: [
+                { on_text: "Selection:", run: "1\n" },
+            ],
+            expected_serial_text: [
+                "init: starting",
             ],
         },
         {
@@ -840,17 +902,30 @@ if(cluster.isMaster)
             actions: [{ on_text: "                   BIOS default device boot in", run: "\n", after: 5000 }],
         },
         {
-            name: "Core 9 (with floppy disk)",
+            name: "Core 9 (with hard disk)",
             skip_if_disk_image_missing: 1,
             timeout: 5 * 60,
             cdrom: root_path + "/images/experimental/os/Core-9.0.iso",
             fda: root_path + "/images/freedos722.img",
-            boot_order: 0x132,
+            boot_order: 0x213,
             actions: [
                 { on_text: "boot:", run: "\n" },
                 { on_text: "tc@box", run: "sudo mount /dev/fd0 /mnt && ls /mnt\n" },
             ],
             expected_texts: ["AUTOEXEC.BAT"],
+        },
+        {
+            name: "Core 9 (with hard disk)",
+            skip_if_disk_image_missing: 1,
+            timeout: 5 * 60,
+            cdrom: root_path + "/images/experimental/os/Core-9.0.iso",
+            hda: root_path + "/images/TinyCore-11.0.iso",
+            boot_order: 0x213,
+            actions: [
+                { on_text: "boot:", run: "\n" },
+                { on_text: "tc@box", run: "sudo mount /dev/sda1 /mnt && ls /mnt\n" },
+            ],
+            expected_texts: ["boot/ cde/"],
         },
         {
             name: "Core 8",
@@ -918,7 +993,6 @@ if(cluster.isMaster)
         var worker = cluster.fork();
 
         worker.on("message", send_work_to_worker.bind(null, worker));
-        worker.on("online", send_work_to_worker.bind(null, worker));
 
         worker.on("exit", function(code, signal)
         {
@@ -949,6 +1023,7 @@ else
             process.send("I'm done");
         });
     });
+    process.send("up");
 }
 
 function bytearray_starts_with(arr, search)
@@ -1017,8 +1092,7 @@ function run_test(test, done)
         vga_bios: { url: vga_bios },
         autostart: true,
         memory_size: test.memory_size || 128 * 1024 * 1024,
-        log_level: 0,
-        cmdline: test.cmdline,
+        log_level: +process.env.LOG_LEVEL || 0,
     };
 
     if(test.cdrom)
@@ -1032,6 +1106,10 @@ function run_test(test, done)
     if(test.hda)
     {
         settings.hda = { url: test.hda, async: true };
+    }
+    if(test.hdb)
+    {
+        settings.hdb = { url: test.hdb, async: true };
     }
     if(test.bzimage)
     {
@@ -1054,6 +1132,7 @@ function run_test(test, done)
     settings.acpi = test.acpi;
     settings.boot_order = test.boot_order;
     settings.cpuid_level = test.cpuid_level;
+    settings.net_device = test.net_device;
     settings.disable_jit = +process.env.DISABLE_JIT;
 
     if(test.expected_texts)
@@ -1146,7 +1225,6 @@ function run_test(test, done)
                 clearInterval(screen_interval);
             }
 
-            emulator.stop();
             emulator.destroy();
 
             if(test.failure_allowed)
@@ -1201,20 +1279,17 @@ function run_test(test, done)
         check_test_done();
     });
 
-    emulator.add_listener("screen-set-mode", function(is_graphical)
+    emulator.add_listener("screen-set-size", function(args)
     {
-        graphical_test_done = is_graphical;
-        check_test_done();
-    });
+        const [w, h, bpp] = args;
+        graphical_test_done = bpp !== 0;
 
-    emulator.add_listener("screen-set-size-graphical", function(size)
-    {
         if(test.expect_graphical_size)
         {
-            size_test_done = size[0] === test.expect_graphical_size[0] &&
-                             size[1] === test.expect_graphical_size[1];
-            check_test_done();
+            size_test_done = w === test.expect_graphical_size[0] && h === test.expect_graphical_size[1];
         }
+
+        check_test_done();
     });
 
     emulator.add_listener("screen-put-char", function(chr)

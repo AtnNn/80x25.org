@@ -1,16 +1,19 @@
 #!/usr/bin/env node
-"use strict";
 
-const assert = require("assert").strict;
-const fs = require("fs");
-const path = require("path");
-const x86_table = require("./x86_table");
-const rust_ast = require("./rust_ast");
-const { hex, mkdirpSync, get_switch_value, get_switch_exist, finalize_table_rust } = require("./util");
 
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import url from "node:url";
+
+import x86_table from "./x86_table.js";
+import * as rust_ast from "./rust_ast.js";
+import { hex, get_switch_value, get_switch_exist, finalize_table_rust } from "./util.js";
+
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 const OUT_DIR = path.join(__dirname, "..", "src/rust/gen/");
 
-mkdirpSync(OUT_DIR);
+fs.mkdirSync(OUT_DIR, { recursive: true });
 
 const table_arg = get_switch_value("--table");
 const gen_all = get_switch_exist("--all");
@@ -133,15 +136,15 @@ function gen_instruction_body(encodings, size)
 
         if(has_66.length) {
             const body = gen_instruction_body_after_prefix(has_66, size);
-            if_blocks.push({ condition: "ctx.cpu.prefixes & ::prefix::PREFIX_66 != 0", body, });
+            if_blocks.push({ condition: "ctx.cpu.prefixes & prefix::PREFIX_66 != 0", body, });
         }
         if(has_F2.length) {
             const body = gen_instruction_body_after_prefix(has_F2, size);
-            if_blocks.push({ condition: "ctx.cpu.prefixes & ::prefix::PREFIX_F2 != 0", body, });
+            if_blocks.push({ condition: "ctx.cpu.prefixes & prefix::PREFIX_F2 != 0", body, });
         }
         if(has_F3.length) {
             const body = gen_instruction_body_after_prefix(has_F3, size);
-            if_blocks.push({ condition: "ctx.cpu.prefixes & ::prefix::PREFIX_F3 != 0", body, });
+            if_blocks.push({ condition: "ctx.cpu.prefixes & prefix::PREFIX_F3 != 0", body, });
         }
 
         const else_block = {
@@ -199,8 +202,8 @@ function gen_instruction_body_after_prefix(encodings, size)
 
                 default_case: {
                     body: [].concat(
-                        gen_call(`::codegen::gen_trigger_ud`, ["ctx"]),
-                        "*instr_flags |= ::jit::JIT_INSTR_BLOCK_BOUNDARY_FLAG;"
+                        gen_call(`codegen::gen_trigger_ud`, ["ctx"]),
+                        "*instr_flags |= jit::JIT_INSTR_BLOCK_BOUNDARY_FLAG;"
                     ),
                 }
             },
@@ -218,7 +221,7 @@ function gen_instruction_body_after_fixed_g(encoding, size)
 
     if(encoding.block_boundary || (!encoding.custom && encoding.e))
     {
-        instruction_postfix.push("*instr_flags |= ::jit::JIT_INSTR_BLOCK_BOUNDARY_FLAG;");
+        instruction_postfix.push("*instr_flags |= jit::JIT_INSTR_BLOCK_BOUNDARY_FLAG;");
     }
 
     const instruction_prefix = [];
@@ -226,7 +229,7 @@ function gen_instruction_body_after_fixed_g(encoding, size)
     if(encoding.task_switch_test || encoding.sse)
     {
         instruction_prefix.push(
-            gen_call(encoding.sse ? "::codegen::gen_task_switch_test_mmx" : "::codegen::gen_task_switch_test", ["ctx"])
+            gen_call(encoding.sse ? "codegen::gen_task_switch_test_mmx" : "codegen::gen_task_switch_test", ["ctx"])
         );
     }
 
@@ -247,10 +250,10 @@ function gen_instruction_body_after_fixed_g(encoding, size)
         else
         {
             instruction_prefix.push(
-                gen_call("::codegen::gen_move_registers_from_locals_to_memory", ["ctx"])
+                gen_call("codegen::gen_move_registers_from_locals_to_memory", ["ctx"])
             );
             instruction_postfix.push(
-                gen_call("::codegen::gen_move_registers_from_memory_to_locals", ["ctx"])
+                gen_call("codegen::gen_move_registers_from_memory_to_locals", ["ctx"])
             );
         }
     }
@@ -263,14 +266,14 @@ function gen_instruction_body_after_fixed_g(encoding, size)
         if(encoding.mem_ud)
         {
             mem_postfix.push(
-                "*instr_flags |= ::jit::JIT_INSTR_BLOCK_BOUNDARY_FLAG;"
+                "*instr_flags |= jit::JIT_INSTR_BLOCK_BOUNDARY_FLAG;"
             );
         }
 
         if(encoding.reg_ud)
         {
             reg_postfix.push(
-                "*instr_flags |= ::jit::JIT_INSTR_BLOCK_BOUNDARY_FLAG;"
+                "*instr_flags |= jit::JIT_INSTR_BLOCK_BOUNDARY_FLAG;"
             );
         }
 
@@ -284,7 +287,7 @@ function gen_instruction_body_after_fixed_g(encoding, size)
 
             return [].concat(
                 instruction_prefix,
-                gen_call(`::codegen::gen_fn${args.length - 2}_const`, args),
+                gen_call(`codegen::gen_fn${args.length - 2}_const`, args),
                 reg_postfix,
                 instruction_postfix
             );
@@ -313,16 +316,16 @@ function gen_instruction_body_after_fixed_g(encoding, size)
                     if_blocks: [{
                         condition: "modrm_byte < 0xC0",
                         body: [].concat(
-                            "let addr = ::modrm::decode(ctx.cpu, modrm_byte);",
+                            "let addr = modrm::decode(ctx.cpu, modrm_byte);",
                             imm_read_bindings,
-                            gen_call(`::jit_instructions::${instruction_name}_mem_jit`, mem_args),
+                            gen_call(`jit_instructions::${instruction_name}_mem_jit`, mem_args),
                             mem_postfix
                         ),
                     }],
                     else_block: {
                         body: [].concat(
                             imm_read_bindings,
-                            gen_call(`::jit_instructions::${instruction_name}_reg_jit`, reg_args),
+                            gen_call(`jit_instructions::${instruction_name}_reg_jit`, reg_args),
                             reg_postfix
                         ),
                     },
@@ -354,17 +357,17 @@ function gen_instruction_body_after_fixed_g(encoding, size)
                     if_blocks: [{
                         condition: "modrm_byte < 0xC0",
                         body: [].concat(
-                            "let addr = ::modrm::decode(ctx.cpu, modrm_byte);",
-                            gen_call(`::codegen::gen_modrm_resolve`, ["ctx", "addr"]),
+                            "let addr = modrm::decode(ctx.cpu, modrm_byte);",
+                            gen_call(`codegen::gen_modrm_resolve`, ["ctx", "addr"]),
                             imm_read_bindings,
-                            gen_call(`::codegen::gen_modrm_fn${mem_args.length - 2}`, mem_args),
+                            gen_call(`codegen::gen_modrm_fn${mem_args.length - 2}`, mem_args),
                             mem_postfix
                         ),
                     }],
                     else_block: {
                         body: [].concat(
                             imm_read_bindings,
-                            gen_call(`::codegen::gen_fn${reg_args.length - 2}_const`, reg_args),
+                            gen_call(`codegen::gen_fn${reg_args.length - 2}_const`, reg_args),
                             reg_postfix
                         ),
                     },
@@ -392,7 +395,7 @@ function gen_instruction_body_after_fixed_g(encoding, size)
         return [].concat(
             instruction_prefix,
             imm_read_bindings,
-            gen_call(`::jit_instructions::${instruction_name}_jit`, args),
+            gen_call(`jit_instructions::${instruction_name}_jit`, args),
             instruction_postfix
         );
     }
@@ -423,7 +426,7 @@ function gen_instruction_body_after_fixed_g(encoding, size)
         return [].concat(
             instruction_prefix,
             imm_read_bindings,
-            gen_call(`::codegen::gen_fn${args.length - 2}_const`, args),
+            gen_call(`codegen::gen_fn${args.length - 2}_const`, args),
             instruction_postfix
         );
     }
@@ -493,7 +496,14 @@ function gen_table()
     {
         const code = [
             "#[cfg_attr(rustfmt, rustfmt_skip)]",
-            "pub fn jit(opcode: u32, ctx: &mut ::jit::JitContext, instr_flags: &mut u32) {",
+
+            "use crate::prefix;",
+            "use crate::jit;",
+            "use crate::jit_instructions;",
+            "use crate::modrm;",
+            "use crate::codegen;",
+
+            "pub fn jit(opcode: u32, ctx: &mut jit::JitContext, instr_flags: &mut u32) {",
             table,
             "}",
         ];
@@ -549,7 +559,14 @@ function gen_table()
     {
         const code = [
             "#[cfg_attr(rustfmt, rustfmt_skip)]",
-            "pub fn jit(opcode: u32, ctx: &mut ::jit::JitContext, instr_flags: &mut u32) {",
+
+            "use crate::prefix;",
+            "use crate::jit;",
+            "use crate::jit_instructions;",
+            "use crate::modrm;",
+            "use crate::codegen;",
+
+            "pub fn jit(opcode: u32, ctx: &mut jit::JitContext, instr_flags: &mut u32) {",
             table0f,
             "}",
         ];

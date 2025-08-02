@@ -5,22 +5,33 @@ on:
   pull_request:
 
 jobs:
-  jshint:
-    name: JSHint
+  eslint:
+    name: eslint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run JSHint
-        run: sudo npm install -g jshint; make jshint
+      - name: Run eslint
+        run: sudo npm install -g eslint; make eslint
 
   test:
     runs-on: ubuntu-latest
     name: Build and test
+    timeout-minutes: 60
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: tree:0
+
+      - name: Setup Node.js version
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          check-latest: true
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Setup toolchain
         run: |
@@ -42,8 +53,11 @@ jobs:
       - name: Build fallback
         run: make build/v86-fallback.wasm
 
+      - name: rustfmt check
+        run: make rustfmt
+
       - name: Fetch kvm-unit-test cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         id: cache-kvm-unit-test
         with:
           path: tests/kvm-unit-tests/
@@ -54,10 +68,10 @@ jobs:
         run: (cd tests/kvm-unit-tests && ./configure && make x86/realmode.flat)
 
       - name: Run kvm-unit-test
-        run: tests/kvm-unit-tests/run.js tests/kvm-unit-tests/x86/realmode.flat
+        run: tests/kvm-unit-tests/run.mjs tests/kvm-unit-tests/x86/realmode.flat
 
       - name: Fetch namsmtests cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         id: cache-nasmtests
         with:
           path: tests/nasm/build/
@@ -73,7 +87,7 @@ jobs:
         run: make rust-test
 
       - name: Fetch image cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         id: cache-images
         with:
           path: images/
@@ -81,7 +95,7 @@ jobs:
 
       - name: Download uncached images
         if: steps.cache-images.outputs.cache-hit != 'true'
-        run: wget -nv -P images/ https://k.copy.sh/{linux.iso,linux3.iso,linux4.iso,buildroot-bzimage.bin,TinyCore-11.0.iso,oberon.img,msdos.img,openbsd-floppy.img,kolibri.img,windows101.img,os8.img,freedos722.img,mobius-fd-release5.img}
+        run: mkdir -p images && curl --compressed --output-dir images --remote-name-all https://i.copy.sh/{linux.iso,linux3.iso,linux4.iso,buildroot-bzimage68.bin,TinyCore-11.0.iso,oberon.img,msdos.img,openbsd-floppy.img,kolibri.img,windows101.img,os8.img,freedos722.img,mobius-fd-release5.img,msdos622.img}
 
       - name: Run api-tests
         run: make api-tests
@@ -98,23 +112,37 @@ jobs:
       - name: Run integration tests
         run: MAX_PARALLEL_TESTS=1 make tests
 
+      - name: Run devices tests
+        run: make devices-test
+
       - name: Run expect tests
         run: make expect-tests
 
+      - name: Update package.json version
+        run: make update-package-json-version
+
       - name: Upload the artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: v86
           path: |
+            package.json
+            LICENSE
+            Readme.md
             build/libv86*.js
             build/libv86*.js.map
             build/v86*.wasm
+            build/*.mjs
 
   upload:
     name: Upload release
     runs-on: ubuntu-latest
     needs: test
     if: github.ref == 'refs/heads/master'
+
+    permissions:
+      id-token: write
+      contents: write
 
     steps:
       - name: Delete old release and tag
@@ -125,13 +153,17 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: v86
-          path: build
 
       - name: Display structure of downloaded files
         run: ls -R
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Release to GitHub
         uses: ncipollo/release-action@v1
@@ -140,5 +172,9 @@ jobs:
           tag: latest
           commit: master
           body: ${{ github.event.head_commit.message }}
-          artifacts: "build/libv86*.js,build/libv86*.js.map,build/v86*.wasm"
+          artifacts: "build/libv86*.js,build/libv86*.js.map,build/*.mjs,build/v86*.wasm"
           prerelease: true
+
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}

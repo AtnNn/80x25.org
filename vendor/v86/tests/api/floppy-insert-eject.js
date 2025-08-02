@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-"use strict";
+
+import { setTimeout as pause } from "timers/promises";
+import url from "node:url";
+
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 
 const TEST_RELEASE_BUILD = +process.env.TEST_RELEASE_BUILD;
-
-const fs = require("fs");
-var V86 = require(`../../build/${TEST_RELEASE_BUILD ? "libv86" : "libv86-debug"}.js`).V86;
+const { V86 } = await import(TEST_RELEASE_BUILD ? "../../build/libv86.mjs" : "../../src/main.js");
 
 process.on("unhandledRejection", exn => { throw exn; });
 
@@ -16,27 +18,34 @@ const emulator = new V86({
     autostart: true,
     memory_size: 32 * 1024 * 1024,
     filesystem: {},
-    log_level: 0,
+    log_level: 3,
     disable_jit: +process.env.DISABLE_JIT,
-    screen_dummy: true,
 });
 
-emulator.automatically([
-    { sleep: 1 },
-    { vga_text: "C:\\> " },
-    { keyboard_send: "dir A:\n" },
-    { vga_text: "Abort, Retry, Fail?" },
-    { keyboard_send: "F" },
-    { call: () => {
-            emulator.set_fda({ url: __dirname + "/../../images/freedos722.img" });
-        },
-    },
-    { keyboard_send: "dir A:\n" },
-    { sleep: 1 },
-    { vga_text: "FDOS         <DIR>" },
-    { call: () => {
-            console.log("Passed");
-            emulator.stop();
-        }
-    },
-]);
+//const interval = setInterval(() => {
+//    console.warn(emulator.screen_adapter.get_text_screen());
+//}, 1000);
+
+const timeout = setTimeout(() => {
+    console.warn(emulator.screen_adapter.get_text_screen());
+    throw new Error("Timeout");
+}, 60 * 1000);
+
+setTimeout(async () =>
+{
+    await emulator.wait_until_vga_screen_contains("C:\\> ");
+    console.log("Got C:\\>");
+    await pause(1000);
+    emulator.keyboard_send_text("dir A:\n");
+    await emulator.wait_until_vga_screen_contains("Abort, Retry, Fail?");
+    console.log("Got Abort, Retry, Fail?");
+    await pause(1000);
+    emulator.keyboard_send_text("F");
+    emulator.set_fda({ url: __dirname + "/../../images/freedos722.img" });
+    emulator.keyboard_send_text("dir A:\n");
+    await emulator.wait_until_vga_screen_contains("FDOS         <DIR>");
+    console.log("Got FDOS");
+    emulator.destroy();
+    clearTimeout(timeout);
+    //clearInterval(interval);
+}, 1000);

@@ -1,29 +1,31 @@
-"use strict";
-
 // See Intel's System Programming Guide
 
+import { v86 } from "./main.js";
+import { LOG_APIC } from "../src/const.js";
+import { h, int_log2 } from "./lib.js";
+import { dbg_assert, dbg_log, dbg_trace } from "./log.js";
+import { IOAPIC_CONFIG_MASKED, IOAPIC_DELIVERY_INIT, IOAPIC_DELIVERY_NMI, IOAPIC_DELIVERY_FIXED } from "./ioapic.js";
 
-/** @const */
-var APIC_LOG_VERBOSE = false;
+// For Types Only
+import { CPU } from "./cpu.js";
 
-/** @const */
-var APIC_ADDRESS = 0xFEE00000;
+export const APIC_LOG_VERBOSE = false;
 
-/** @const */
-var APIC_TIMER_MODE_MASK = 3 << 17;
+// should probably be kept in sync with TSC_RATE in cpu.rs
+const APIC_TIMER_FREQ = 1 * 1000 * 1000;
 
-/** @const */
-var APIC_TIMER_MODE_ONE_SHOT = 0;
+const APIC_ADDRESS = 0xFEE00000;
 
-/** @const */
-var APIC_TIMER_MODE_PERIODIC = 1 << 17;
+const APIC_TIMER_MODE_MASK = 3 << 17;
 
-/** @const */
-var APIC_TIMER_MODE_TSC = 2 << 17;
+const APIC_TIMER_MODE_ONE_SHOT = 0;
+
+const APIC_TIMER_MODE_PERIODIC = 1 << 17;
+
+const APIC_TIMER_MODE_TSC = 2 << 17;
 
 
-/** @const */
-var DELIVERY_MODES = [
+export const DELIVERY_MODES = [
     "Fixed (0)",
     "Lowest Prio (1)",
     "SMI (2)",
@@ -34,15 +36,14 @@ var DELIVERY_MODES = [
     "ExtINT (7)",
 ];
 
-/** @const */
-var DESTINATION_MODES = ["physical", "logical"];
+export const DESTINATION_MODES = ["physical", "logical"];
 
 
 /**
  * @constructor
  * @param {CPU} cpu
  */
-function APIC(cpu)
+export function APIC(cpu)
 {
     /** @type {CPU} */
     this.cpu = cpu;
@@ -57,6 +58,7 @@ function APIC(cpu)
     this.next_tick = v86.microtick();
 
     this.lvt_timer = IOAPIC_CONFIG_MASKED;
+    this.lvt_thermal_sensor = IOAPIC_CONFIG_MASKED;
     this.lvt_perf_counter = IOAPIC_CONFIG_MASKED;
     this.lvt_int0 = IOAPIC_CONFIG_MASKED;
     this.lvt_int1 = IOAPIC_CONFIG_MASKED;
@@ -178,6 +180,10 @@ APIC.prototype.read32 = function(addr)
             dbg_log("read timer lvt", LOG_APIC);
             return this.lvt_timer;
 
+        case 0x330:
+            dbg_log("read lvt thermal sensor", LOG_APIC);
+            return this.lvt_thermal_sensor;
+
         case 0x340:
             dbg_log("read lvt perf counter", LOG_APIC);
             return this.lvt_perf_counter;
@@ -220,6 +226,11 @@ APIC.prototype.write32 = function(addr, value)
 
     switch(addr)
     {
+        case 0x20:
+            dbg_log("APIC write id: " + h(value >>> 8, 8), LOG_APIC);
+            this.apic_id = value;
+            break;
+
         case 0x30:
             // version
             dbg_log("APIC write version: " + h(value >>> 0, 8) + ", ignored", LOG_APIC);
@@ -319,6 +330,11 @@ APIC.prototype.write32 = function(addr, value)
         case 0x320:
             dbg_log("timer lvt: " + h(value >>> 0, 8), LOG_APIC);
             this.lvt_timer = value;
+            break;
+
+        case 0x330:
+            dbg_log("lvt thermal sensor: " + h(value >>> 0, 8), LOG_APIC);
+            this.lvt_thermal_sensor = value;
             break;
 
         case 0x340:
@@ -566,6 +582,7 @@ APIC.prototype.get_state = function()
     state[19] = this.local_destination;
     state[20] = this.error;
     state[21] = this.read_error;
+    state[22] = this.lvt_thermal_sensor;
 
     return state;
 };
@@ -594,6 +611,7 @@ APIC.prototype.set_state = function(state)
     this.local_destination = state[19];
     this.error = state[20];
     this.read_error = state[21];
+    this.lvt_thermal_sensor = state[22] || IOAPIC_CONFIG_MASKED;
 };
 
 // functions operating on 256-bit registers (for irr, isr, tmr)
@@ -623,7 +641,7 @@ APIC.prototype.register_get_highest_bit = function(v)
 
         if(word)
         {
-            return v86util.int_log2(word >>> 0) | i << 5;
+            return int_log2(word >>> 0) | i << 5;
         }
     }
 

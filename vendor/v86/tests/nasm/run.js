@@ -1,5 +1,16 @@
 #!/usr/bin/env node
-"use strict";
+
+import fs from "node:fs";
+import path from "node:path";
+import url from "node:url";
+import assert from "node:assert/strict";
+import os from "node:os";
+import cluster from "node:cluster";
+
+const TEST_RELEASE_BUILD = +process.env.TEST_RELEASE_BUILD;
+const { V86 } = await import(TEST_RELEASE_BUILD ? "../../build/libv86.mjs" : "../../src/main.js");
+
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 
 process.on("unhandledRejection", exn => { throw exn; });
 
@@ -15,20 +26,14 @@ process.on("unhandledRejection", exn => { throw exn; });
 
 // A #UD might indicate a bug in the test generation
 
-const assert = require("assert").strict;
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
-const cluster = require("cluster");
-
 const MAX_PARALLEL_TESTS = +process.env.MAX_PARALLEL_TESTS || 99;
 const TEST_NAME = new RegExp(process.env.TEST_NAME || "", "i");
 const SINGLE_TEST_TIMEOUT = 10000;
-const TEST_RELEASE_BUILD = +process.env.TEST_RELEASE_BUILD;
 
 const TEST_DIR = __dirname + "/build/";
 const DONE_MSG = "DONE";
 const TERMINATE_MSG = "DONE";
+const READY_MSG = "READY";
 
 const BSS = 0x100000;
 const STACK_TOP = 0x102000;
@@ -45,16 +50,6 @@ const MASK_ARITH = 1 | 1 << 2 | 1 << 4 | 1 << 6 | 1 << 7 | 1 << 11;
 const FPU_TAG_ALL_INVALID = 0xAAAA;
 const FPU_STATUS_MASK = 0xFFFF & ~(1 << 9 | 1 << 5 | 1 << 3 | 1 << 1); // bits that are not correctly implemented by v86
 const FP_COMPARISON_SIGNIFICANT_DIGITS = 7;
-
-try {
-    var V86 = require(`../../build/${TEST_RELEASE_BUILD ? "libv86" : "libv86-debug"}.js`).V86;
-}
-catch(e) {
-    console.error(e);
-    console.error("Failed to import build/libv86-debug.js. Run " +
-                  "`make build/libv86-debug.js` first.");
-    process.exit(1);
-}
 
 function float_equal(x, y)
 {
@@ -128,7 +123,7 @@ if(cluster.isMaster)
 
         const json_regex = /---BEGIN JSON---([\s\[\]\.\+\w":\-,]*)---END JSON---/;
         const regex_match = json_regex.exec(fixture_text);
-        if (!regex_match || regex_match.length < 2) {
+        if(!regex_match || regex_match.length < 2) {
             throw new Error("Could not find JSON in fixture text: " + fixture_text + "\nTest: " + name);
         }
 
@@ -202,13 +197,11 @@ if(cluster.isMaster)
         let worker = cluster.fork();
 
         worker.on("message", function(message) {
-            if (message !== DONE_MSG) {
+            if(message !== DONE_MSG && message !== READY_MSG) {
                 failed_tests.push(message);
             }
             send_work_to_worker(this);
         });
-
-        worker.on("online", send_work_to_worker.bind(null, worker));
 
         worker.on("exit", function(code, signal) {
             if(code !== 0 &&  code !== null) {
@@ -230,7 +223,7 @@ if(cluster.isMaster)
             tests.length - failed_tests.length,
             tests.length
         );
-        if (failed_tests.length > 0) {
+        if(failed_tests.length > 0) {
             console.log("[-] Failed %d test(s).", failed_tests.length);
             failed_tests.forEach(function(test_failure) {
 
@@ -416,9 +409,9 @@ else {
 
         if(!current_test.fixture.exception)
         {
-            for (let i = 0; i < cpu.reg32.length; i++) {
+            for(let i = 0; i < cpu.reg32.length; i++) {
                 let reg = cpu.reg32[i];
-                if (reg !== expected_reg32[i]) {
+                if(reg !== expected_reg32[i]) {
                     individual_failures.push({
                         name: "cpu.reg32[" + i + "]",
                         expected: expected_reg32[i],
@@ -429,8 +422,8 @@ else {
 
             if(fpu_tag !== FPU_TAG_ALL_INVALID)
             {
-                for (let i = 0; i < evaluated_fpu_regs.length; i++) {
-                    if (expected_fpu_regs[i] !== "invalid" &&
+                for(let i = 0; i < evaluated_fpu_regs.length; i++) {
+                    if(expected_fpu_regs[i] !== "invalid" &&
                             !float_equal(evaluated_fpu_regs[i], expected_fpu_regs[i])) {
                         individual_failures.push({
                             name: "st" + i,
@@ -451,8 +444,8 @@ else {
             }
             else
             {
-                for (let i = 0; i < evaluated_mmxs.length; i++) {
-                    if (evaluated_mmxs[i] !== expected_mmx_registers[i]) {
+                for(let i = 0; i < evaluated_mmxs.length; i++) {
+                    if(evaluated_mmxs[i] !== expected_mmx_registers[i]) {
                         individual_failures.push({
                             name: "mm" + (i >> 1) + ".int32[" + (i & 1) + "]",
                             expected: expected_mmx_registers[i],
@@ -462,8 +455,8 @@ else {
                 }
             }
 
-            for (let i = 0; i < evaluated_xmms.length; i++) {
-                if (evaluated_xmms[i] !== expected_xmm_registers[i]) {
+            for(let i = 0; i < evaluated_xmms.length; i++) {
+                if(evaluated_xmms[i] !== expected_xmm_registers[i]) {
                     individual_failures.push({
                         name: "xmm" + (i >> 2) + ".int32[" + (i & 3) + "] (cpu.reg_xmm[" + i + "])",
                         expected: expected_xmm_registers[i],
@@ -472,8 +465,8 @@ else {
                 }
             }
 
-            for (let i = 0; i < evaluated_memory.length; i++) {
-                if (evaluated_memory[i] !== expected_memory[i]) {
+            for(let i = 0; i < evaluated_memory.length; i++) {
+                if(evaluated_memory[i] !== expected_memory[i]) {
                     individual_failures.push({
                         name: "mem[" + (BSS + 4 * i).toString(16).toUpperCase() + "]",
                         expected: expected_memory[i],
@@ -526,7 +519,7 @@ else {
 
         recorded_exceptions = [];
 
-        if (individual_failures.length > 0) {
+        if(individual_failures.length > 0) {
             process.send({
                 failures: individual_failures,
                 img_name: current_test.img_name
@@ -548,4 +541,6 @@ else {
             run_test(message);
         }
     });
+
+    process.send(READY_MSG);
 }

@@ -1,16 +1,19 @@
 #!/usr/bin/env node
-"use strict";
 
-const assert = require("assert").strict;
-const fs = require("fs");
-const path = require("path");
-const x86_table = require("./x86_table");
-const rust_ast = require("./rust_ast");
-const { hex, mkdirpSync, get_switch_value, get_switch_exist, finalize_table_rust } = require("./util");
 
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import url from "node:url";
+
+import x86_table from "./x86_table.js";
+import * as rust_ast from "./rust_ast.js";
+import { hex, get_switch_value, get_switch_exist, finalize_table_rust } from "./util.js";
+
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 const OUT_DIR = path.join(__dirname, "..", "src/rust/gen/");
 
-mkdirpSync(OUT_DIR);
+fs.mkdirSync(OUT_DIR, { recursive: true });
 
 const table_arg = get_switch_value("--table");
 const gen_all = get_switch_exist("--all");
@@ -139,18 +142,18 @@ function gen_instruction_body(encodings, size)
 
         if(has_66.length) {
             const body = gen_instruction_body_after_prefix(has_66, size);
-            if_blocks.push({ condition: "prefixes_ & ::prefix::PREFIX_66 != 0", body, });
+            if_blocks.push({ condition: "prefixes_ & prefix::PREFIX_66 != 0", body, });
         }
         if(has_F2.length) {
             const body = gen_instruction_body_after_prefix(has_F2, size);
-            if_blocks.push({ condition: "prefixes_ & ::prefix::PREFIX_F2 != 0", body, });
+            if_blocks.push({ condition: "prefixes_ & prefix::PREFIX_F2 != 0", body, });
         }
         if(has_F3.length) {
             const body = gen_instruction_body_after_prefix(has_F3, size);
-            if_blocks.push({ condition: "prefixes_ & ::prefix::PREFIX_F3 != 0", body, });
+            if_blocks.push({ condition: "prefixes_ & prefix::PREFIX_F3 != 0", body, });
         }
 
-        const check_prefixes = encoding.sse ? "(::prefix::PREFIX_66 | ::prefix::PREFIX_F2 | ::prefix::PREFIX_F3)" : "(::prefix::PREFIX_F2 | ::prefix::PREFIX_F3)";
+        const check_prefixes = encoding.sse ? "(prefix::PREFIX_66 | prefix::PREFIX_F2 | prefix::PREFIX_F3)" : "(prefix::PREFIX_F2 | prefix::PREFIX_F3)";
 
         const else_block = {
             body: [].concat(
@@ -160,7 +163,7 @@ function gen_instruction_body(encodings, size)
         };
 
         return [].concat(
-	    "let prefixes_ = *prefixes;",
+            "let prefixes_ = *prefixes;",
             code,
             {
                 type: "if-else",
@@ -408,11 +411,12 @@ function gen_table()
         const code = [
             "#![cfg_attr(rustfmt, rustfmt_skip)]",
 
-            "use cpu::cpu::{after_block_boundary, modrm_resolve};",
-            "use cpu::cpu::{read_imm8, read_imm8s, read_imm16, read_imm32s, read_moffs};",
-            "use cpu::cpu::{task_switch_test, trigger_ud, DEBUG};",
-            "use cpu::instructions;",
-            "use cpu::global_pointers::{instruction_pointer, prefixes};",
+            "use crate::cpu::cpu::{after_block_boundary, modrm_resolve};",
+            "use crate::cpu::cpu::{read_imm8, read_imm8s, read_imm16, read_imm32s, read_moffs};",
+            "use crate::cpu::cpu::{task_switch_test, trigger_ud, DEBUG};",
+            "use crate::cpu::instructions;",
+            "use crate::cpu::global_pointers::{instruction_pointer, prefixes};",
+            "use crate::prefix;",
 
             "pub unsafe fn run(opcode: u32) {",
             table,
@@ -471,12 +475,13 @@ function gen_table()
         const code = [
             "#![cfg_attr(rustfmt, rustfmt_skip)]",
 
-            "use cpu::cpu::{after_block_boundary, modrm_resolve};",
-            "use cpu::cpu::{read_imm8, read_imm16, read_imm32s};",
-            "use cpu::cpu::{task_switch_test, task_switch_test_mmx, trigger_ud};",
-            "use cpu::cpu::DEBUG;",
-            "use cpu::instructions_0f;",
-            "use cpu::global_pointers::{instruction_pointer, prefixes};",
+            "use crate::cpu::cpu::{after_block_boundary, modrm_resolve};",
+            "use crate::cpu::cpu::{read_imm8, read_imm16, read_imm32s};",
+            "use crate::cpu::cpu::{task_switch_test, task_switch_test_mmx, trigger_ud};",
+            "use crate::cpu::cpu::DEBUG;",
+            "use crate::cpu::instructions_0f;",
+            "use crate::cpu::global_pointers::{instruction_pointer, prefixes};",
+            "use crate::prefix;",
 
             "pub unsafe fn run(opcode: u32) {",
             table0f,

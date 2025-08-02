@@ -1,12 +1,14 @@
 #!/usr/bin/env node
-"use strict";
 
-process.on("unhandledRejection", exn => { throw exn; });
+import { fileURLToPath } from "url";
+import path from "path";
+import fs from "fs";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TEST_RELEASE_BUILD = +process.env.TEST_RELEASE_BUILD;
+const { V86 } = await import(TEST_RELEASE_BUILD ? "../../build/libv86.mjs" : "../../src/main.js");
 
-var V86 = require(`../../build/${TEST_RELEASE_BUILD ? "libv86" : "libv86-debug"}.js`).V86;
-var fs = require("fs");
+process.on("unhandledRejection", exn => { throw exn; });
 
 var test_executable = new Uint8Array(fs.readFileSync(__dirname + "/test-i386"));
 
@@ -18,17 +20,22 @@ var emulator = new V86({
     memory_size: 32 * 1024 * 1024,
     filesystem: {},
     disable_jit: +process.env.DISABLE_JIT,
-    log_level: 0,
+    log_level: +process.env.LOG_LEVEL || 0,
 });
 
 emulator.bus.register("emulator-started", function()
 {
-    console.error("Booting now, please stand by");
     emulator.create_file("test-i386", test_executable);
 });
 
 var ran_command = false;
 var line = "";
+
+let outfile = process.stdout;
+if(process.argv[2])
+{
+    outfile = await fs.promises.open(process.argv[2], "w");
+}
 
 emulator.add_listener("serial0-output-byte", async function(byte)
 {
@@ -64,7 +71,7 @@ emulator.add_listener("serial0-output-byte", async function(byte)
         const data = await emulator.read_file("/result");
         console.error("Got result, writing to stdout");
 
-        process.stdout.write(Buffer.from(data));
-        emulator.stop();
+        outfile.write(Buffer.from(data));
+        emulator.destroy();
     }
 });

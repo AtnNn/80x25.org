@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-"use strict";
+
+import url from "node:url";
+
+const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 
 // This test checks that reset works
 
 const TEST_RELEASE_BUILD = +process.env.TEST_RELEASE_BUILD;
-
-const fs = require("fs");
-var V86 = require(`../../build/${TEST_RELEASE_BUILD ? "libv86" : "libv86-debug"}.js`).V86;
+const { V86 } = await import(TEST_RELEASE_BUILD ? "../../build/libv86.mjs" : "../../src/main.js");
 
 process.on("unhandledRejection", exn => { throw exn; });
 
@@ -20,7 +21,6 @@ const config = {
     filesystem: {},
     log_level: 0,
     disable_jit: +process.env.DISABLE_JIT,
-    screen_dummy: true,
 };
 
 const emulator = new V86(config);
@@ -37,7 +37,7 @@ emulator.add_listener("serial0-output-byte", function(byte)
         serial_text = "";
         if(did_restart) {
             console.log("Ok");
-            emulator.stop();
+            emulator.destroy();
         }
         else {
             console.log("Calling restart()");

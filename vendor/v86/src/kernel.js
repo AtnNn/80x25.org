@@ -1,4 +1,6 @@
-"use strict";
+import { h } from "./lib.js";
+import { dbg_assert, dbg_log } from "./log.js";
+
 
 // https://www.kernel.org/doc/Documentation/x86/boot.txt
 
@@ -37,7 +39,7 @@ const LINUX_BOOT_HDR_LOADFLAGS_KEEP_SEGMENTS = 1 << 6;
 const LINUX_BOOT_HDR_LOADFLAGS_CAN_USE_HEAPS = 1 << 7;
 
 
-function load_kernel(mem8, bzimage, initrd, cmdline)
+export function load_kernel(mem8, bzimage, initrd, cmdline)
 {
     dbg_log("Trying to load kernel of size " + bzimage.byteLength);
 
@@ -89,7 +91,7 @@ function load_kernel(mem8, bzimage, initrd, cmdline)
     const kernel_alignment = bzimage32[LINUX_BOOT_HDR_KERNEL_ALIGNMENT >> 2];
     const relocatable_kernel = bzimage8[LINUX_BOOT_HDR_RELOCATABLE_KERNEL];
     const min_alignment = bzimage8[LINUX_BOOT_HDR_MIN_ALIGNMENT];
-    const cmdline_size = bzimage32[LINUX_BOOT_HDR_CMDLINE_SIZE >> 2];
+    const cmdline_size = protocol >= 0x206 ? bzimage32[LINUX_BOOT_HDR_CMDLINE_SIZE >> 2] : 255;
     const payload_offset = bzimage32[LINUX_BOOT_HDR_PAYLOAD_OFFSET >> 2];
     const payload_length = bzimage32[LINUX_BOOT_HDR_PAYLOAD_LENGTH >> 2];
     const pref_address = bzimage32[LINUX_BOOT_HDR_PREF_ADDRESS >> 2];

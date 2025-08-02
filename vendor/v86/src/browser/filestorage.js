@@ -1,7 +1,8 @@
-"use strict";
+import { dbg_assert } from "../log.js";
+import { load_file } from "../lib.js";
 
 /** @interface */
-function FileStorageInterface() {}
+export function FileStorageInterface() {}
 
 /**
  * Read a portion of a file.
@@ -31,7 +32,7 @@ FileStorageInterface.prototype.uncache = function(sha256sum) {};
  * @constructor
  * @implements {FileStorageInterface}
  */
-function MemoryFileStorage()
+export function MemoryFileStorage()
 {
     /**
      * From sha256sum to file data.
@@ -83,9 +84,14 @@ MemoryFileStorage.prototype.uncache = function(sha256sum)
  * @param {FileStorageInterface} file_storage
  * @param {string} baseurl
  */
-function ServerFileStorageWrapper(file_storage, baseurl)
+export function ServerFileStorageWrapper(file_storage, baseurl)
 {
     dbg_assert(baseurl, "ServerMemoryFileStorage: baseurl should not be empty");
+
+    if(!baseurl.endsWith("/"))
+    {
+        baseurl += "/";
+    }
 
     this.storage = file_storage;
     this.baseurl = baseurl;
@@ -99,7 +105,7 @@ ServerFileStorageWrapper.prototype.load_from_server = function(sha256sum)
 {
     return new Promise((resolve, reject) =>
     {
-        v86util.load_file(this.baseurl + sha256sum, { done: async buffer =>
+        load_file(this.baseurl + sha256sum, { done: async buffer =>
         {
             const data = new Uint8Array(buffer);
             await this.cache(sha256sum, data);
@@ -141,21 +147,3 @@ ServerFileStorageWrapper.prototype.uncache = function(sha256sum)
 {
     this.storage.uncache(sha256sum);
 };
-
-// Closure Compiler's way of exporting
-if(typeof window !== "undefined")
-{
-    window["MemoryFileStorage"] = MemoryFileStorage;
-    window["ServerFileStorageWrapper"] = ServerFileStorageWrapper;
-}
-else if(typeof module !== "undefined" && typeof module.exports !== "undefined")
-{
-    module.exports["MemoryFileStorage"] = MemoryFileStorage;
-    module.exports["ServerFileStorageWrapper"] = ServerFileStorageWrapper;
-}
-else if(typeof importScripts === "function")
-{
-    // web worker
-    self["MemoryFileStorage"] = MemoryFileStorage;
-    self["ServerFileStorageWrapper"] = ServerFileStorageWrapper;
-}

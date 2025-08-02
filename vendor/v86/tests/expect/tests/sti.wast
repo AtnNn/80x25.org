@@ -67,7 +67,7 @@
                 (br_if $B4
                   (i32.eq
                     (get_local $p0)
-                    (i32.const 1))))
+                    (i32.const 0))))
               (set_local $l8
                 (i32.add
                   (get_local $l8)
@@ -150,7 +150,7 @@
               (then
                 (call $e.trigger_gp_jit
                   (i32.const 0)
-                  (i32.const 4096))
+                  (i32.const 0))
                 (br $B1)))
             (i32.store
               (i32.const 560)

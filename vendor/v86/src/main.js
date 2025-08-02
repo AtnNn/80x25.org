@@ -1,16 +1,21 @@
-"use strict";
+import { CPU } from "./cpu.js";
+import { save_state, restore_state } from "./state.js";
+export { V86 } from "./browser/starter.js";
 
 /**
  * @constructor
  * @param {Object=} wasm
  */
-function v86(bus, wasm)
+export function v86(bus, wasm)
 {
     /** @type {boolean} */
     this.running = false;
 
     /** @type {boolean} */
     this.stopping = false;
+
+    /** @type {boolean} */
+    this.idle = true;
 
     this.tick_counter = 0;
     this.worker = null;
@@ -19,10 +24,6 @@ function v86(bus, wasm)
     this.cpu = new CPU(bus, wasm, () => { this.idle && this.next_tick(0); });
 
     this.bus = bus;
-    bus.register("cpu-init", this.init, this);
-    bus.register("cpu-run", this.run, this);
-    bus.register("cpu-stop", this.stop, this);
-    bus.register("cpu-restart", this.restart, this);
 
     this.register_yield();
 }
@@ -99,6 +100,7 @@ if(typeof process !== "undefined")
 {
     v86.prototype.yield = function(t, tick)
     {
+        /* global global */
         if(t < 1)
         {
             global.setImmediate(tick => this.yield_callback(tick), tick);
@@ -118,11 +120,13 @@ else if(typeof Worker !== "undefined")
 
     function the_worker()
     {
+        let timeout;
         globalThis.onmessage = function(e)
         {
             const t = e.data.t;
+            timeout = timeout && clearTimeout(timeout);
             if(t < 1) postMessage(e.data.tick);
-            else setTimeout(() => postMessage(e.data.tick), t);
+            else timeout = setTimeout(() => postMessage(e.data.tick), t);
         };
     }
 
@@ -151,8 +155,7 @@ else if(typeof Worker !== "undefined")
 //    // TODO: Make this deactivatable, for other applications
 //    //       using postMessage
 //
-//    /** @const */
-//    let MAGIC_POST_MESSAGE = 0xAA55;
+//    const MAGIC_POST_MESSAGE = 0xAA55;
 //
 //    v86.prototype.yield = function(t)
 //    {
@@ -195,16 +198,16 @@ else
 v86.prototype.save_state = function()
 {
     // TODO: Should be implemented here, not on cpu
-    return this.cpu.save_state();
+    return save_state(this.cpu);
 };
 
 v86.prototype.restore_state = function(state)
 {
     // TODO: Should be implemented here, not on cpu
-    return this.cpu.restore_state(state);
+    return restore_state(this.cpu, state);
 };
 
-
+/* global require */
 if(typeof performance === "object" && performance.now)
 {
     v86.microtick = performance.now.bind(performance);
