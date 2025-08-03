@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = https://github.com/hyperium/hyper
+	branch = master
+	commit = 974289fb3dc40db87f7e759c27cdba4e1eb407d4
+	parent = f2493bef69ce4eb7fc95373f17ecc3c3eee8136f
+	method = merge
+	cmdver = 0.4.6
