@@ -1,0 +1,91 @@
+services:
+  chrome:
+    build:
+      context: ./
+      dockerfile: ./Dockerfile.d/Dockerfile.node-chrome
+    shm_size: 2gb
+    init: true
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+    depends_on:
+      selenium-hub:
+        condition: service_started
+      init-certs:
+        condition: service_completed_successfully
+    volumes:
+      - certs:/certs
+  firefox:
+    build:
+      context: ./
+      dockerfile: ./Dockerfile.d/Dockerfile.node-firefox
+    shm_size: 2gb
+    init: true
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+    depends_on:
+      selenium-hub:
+        condition: service_started
+      init-certs:
+        condition: service_completed_successfully
+    volumes:
+      - certs:/certs
+  edge:
+    build:
+      context: ./
+      dockerfile: ./Dockerfile.d/Dockerfile.node-edge
+    shm_size: 2gb
+    init: true
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+    depends_on:
+      selenium-hub:
+        condition: service_started
+      init-certs:
+        condition: service_completed_successfully
+    volumes:
+      - certs:/certs
+  init-certs:
+    build:
+      context: ./
+      dockerfile: ./Dockerfile.d/Dockerfile.certs
+    volumes:
+      - certs:/certs
+  selenium-hub:
+    image: selenium/hub:4.33
+    container_name: selenium-hub
+    hostname: selenium-hub
+  testpage:
+    build:
+      context: ../
+      dockerfile: ./tests/Dockerfile.d/Dockerfile.testpage
+    init: true
+    depends_on:
+      init-certs:
+        condition: service_completed_successfully
+    volumes:
+      - htdocs:/usr/local/apache2/htdocs
+      - certs:/usr/local/apache2/conf/ssl
+  runner:
+    build:
+      context: ../
+      dockerfile: ./tests/Dockerfile.d/Dockerfile.runner
+    environment:
+      SELENIUM_URL: http://selenium-hub:4444/wd/hub
+    privileged: true
+    depends_on:
+      selenium-hub:
+        condition: service_started
+    volumes:
+      - htdocs:/htdocs
+      - dockercache:/var/lib/docker
+
+volumes:
+  htdocs:
+  certs:
+  dockercache:

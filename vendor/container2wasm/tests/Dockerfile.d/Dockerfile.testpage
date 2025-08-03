@@ -1,0 +1,38 @@
+ARG C2W_NET_PROXY_VERSION=v0.5.0
+
+FROM node:24 AS dev
+ARG C2W_NET_PROXY_VERSION
+COPY ./examples/emscripten/htdocs /assets
+COPY ./tests/scripts/testpage/index.html /assets/
+WORKDIR /assets/
+RUN npm install -D webpack-cli
+RUN npx webpack
+RUN wget -O /tmp/c2w-net-proxy.wasm https://github.com/ktock/container2wasm/releases/download/${C2W_NET_PROXY_VERSION}/c2w-net-proxy.wasm
+RUN mkdir /htdocs/
+RUN cat /tmp/c2w-net-proxy.wasm | gzip > /htdocs/c2w-net-proxy.wasm.gzip
+RUN cp -R index.html dist vendor /htdocs/
+
+FROM golang:1.24 AS dev-c2w-net
+COPY . .
+RUN go build -o /out/ ./cmd/c2w-net
+
+FROM httpd
+RUN <<EOF
+cat <<EOT >> /usr/local/apache2/conf/httpd.conf
+LoadModule ssl_module modules/mod_ssl.so
+Listen 443
+<VirtualHost *:443>
+    ServerName testpage:443
+    SSLEngine on
+    SSLCertificateFile "/usr/local/apache2/conf/ssl/server.crt"
+    SSLCertificateKeyFile "/usr/local/apache2/conf/ssl/server.key"
+</VirtualHost>
+Include conf/extra/xterm-pty.conf
+EOT
+EOF
+COPY ./examples/emscripten/xterm-pty.conf /usr/local/apache2/conf/extra/xterm-pty.conf
+COPY ./tests/scripts/testpage/entrypoint.sh /
+COPY --from=dev /htdocs /assets
+COPY --from=dev-c2w-net /out/c2w-net /usr/bin/
+
+ENTRYPOINT [ "/bin/sh", "/entrypoint.sh" ]

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gotest.tools/v3/assert"
 
@@ -23,7 +24,7 @@ func TestWasmtime(t *testing.T) {
 			Name:    "wasmtime-hello",
 			Runtime: "wasmtime",
 			Inputs: []utils.Input{
-				{Image: "alpine:3.17", Architecture: utils.X86_64},
+				{Image: "alpine:3.17", Architecture: utils.X8664},
 				{Image: "riscv64/alpine:20221110", ConvertOpts: []string{"--target-arch=riscv64"}, Architecture: utils.RISCV64},
 			},
 			Args: utils.StringFlags("echo", "-n", "hello"),
@@ -33,7 +34,7 @@ func TestWasmtime(t *testing.T) {
 			Name:    "wasmtime-sh",
 			Runtime: "wasmtime",
 			Inputs: []utils.Input{
-				{Image: "alpine:3.17", Architecture: utils.X86_64},
+				{Image: "alpine:3.17", Architecture: utils.X8664},
 				{Image: "riscv64/alpine:20221110", ConvertOpts: []string{"--target-arch=riscv64"}, Architecture: utils.RISCV64},
 			},
 			Args: utils.StringFlags("sh"),
@@ -43,7 +44,7 @@ func TestWasmtime(t *testing.T) {
 			Name:    "wasmtime-mapdir",
 			Runtime: "wasmtime",
 			Inputs: []utils.Input{
-				{Image: "alpine:3.17", Architecture: utils.X86_64},
+				{Image: "alpine:3.17", Architecture: utils.X8664},
 				{Image: "riscv64/alpine:20221110", ConvertOpts: []string{"--target-arch=riscv64"}, Architecture: utils.RISCV64},
 			},
 			Prepare: func(t *testing.T, env utils.Env) {
@@ -66,7 +67,7 @@ func TestWasmtime(t *testing.T) {
 			Name:    "wasmtime-files",
 			Runtime: "wasmtime",
 			Inputs: []utils.Input{
-				{Image: "alpine:3.17", Architecture: utils.X86_64},
+				{Image: "alpine:3.17", Architecture: utils.X8664},
 				{Image: "riscv64/alpine:20221110", ConvertOpts: []string{"--target-arch=riscv64"}, Architecture: utils.RISCV64},
 			},
 			Args: utils.StringFlags("sh"),
@@ -78,7 +79,7 @@ func TestWasmtime(t *testing.T) {
 		{
 			Name: "wasmtime-mapdir-io",
 			Inputs: []utils.Input{
-				{Image: "alpine:3.17", Architecture: utils.X86_64},
+				{Image: "alpine:3.17", Architecture: utils.X8664},
 				{Image: "riscv64/alpine:20221110", ConvertOpts: []string{"--target-arch=riscv64"}, Architecture: utils.RISCV64},
 			},
 			Prepare: func(t *testing.T, env utils.Env) {
@@ -92,7 +93,7 @@ func TestWasmtime(t *testing.T) {
 				// check data from guest
 				data, err := os.ReadFile(filepath.Join(mapdirTestDir, "from-guest", "testhello"))
 				assert.NilError(t, err)
-				assert.Equal(t, string(data), "hello")
+				assert.Equal(t, string(data), "hello2")
 
 				// cleanup
 				assert.NilError(t, os.Remove(filepath.Join(mapdirTestDir, "from-guest", "testhello")))
@@ -109,13 +110,14 @@ func TestWasmtime(t *testing.T) {
 				[2]string{"cat /mapped/dir/test/hi\n", "teststring"},
 				[2]string{"mkdir /mapped/dir/test/from-guest\n", ""},
 				[2]string{"echo -n hello > /mapped/dir/test/from-guest/testhello\n", ""},
+				[2]string{"echo -n hello2 > /mapped/dir/test/from-guest/testhello\n", ""}, // overwrite
 			),
 		},
 		{
 			Name:    "wasmtime-env",
 			Runtime: "wasmtime",
 			Inputs: []utils.Input{
-				{Image: "alpine:3.17", Architecture: utils.X86_64},
+				{Image: "alpine:3.17", Architecture: utils.X8664},
 				{Image: "riscv64/alpine:20221110", ConvertOpts: []string{"--target-arch=riscv64"}, Architecture: utils.RISCV64},
 			},
 			RuntimeOpts: utils.StringFlags("--env=AAA=hello", "--env=BBB=world"),
@@ -125,7 +127,7 @@ func TestWasmtime(t *testing.T) {
 		{
 			Name: "wasmtime-net",
 			Inputs: []utils.Input{
-				{Image: "alpine:3.17", Architecture: utils.X86_64},
+				{Image: "alpine:3.17", Architecture: utils.X8664},
 				{Image: "riscv64/alpine:20221110", ConvertOpts: []string{"--target-arch=riscv64"}, Architecture: utils.RISCV64},
 			},
 			Prepare: func(t *testing.T, env utils.Env) {
@@ -157,7 +159,7 @@ func TestWasmtime(t *testing.T) {
 		{
 			Name: "wasmtime-net-port",
 			Inputs: []utils.Input{
-				{Image: "httphello-alpine-x86-64", Architecture: utils.X86_64, Dockerfile: `
+				{Image: "httphello-alpine-x86-64", Architecture: utils.X8664, Dockerfile: `
 FROM golang:1.21-bullseye AS dev
 COPY ./tests/httphello /httphello
 WORKDIR /httphello
@@ -199,6 +201,7 @@ ENTRYPOINT ["/httphello", "0.0.0.0:80"]
 			},
 			Want: func(t *testing.T, env utils.Env, in io.Writer, out io.Reader) {
 				port := utils.ReadInt(t, filepath.Join(env.Workdir, "httphello-port"))
+				time.Sleep(5 * time.Second) // FIXME: enable to wait for readiness of c2w-net
 				cmd := exec.Command("wget", "-q", "-O", "-", fmt.Sprintf("localhost:%d", port))
 				cmd.Stderr = os.Stderr
 				d, err := cmd.Output()
@@ -211,7 +214,7 @@ ENTRYPOINT ["/httphello", "0.0.0.0:80"]
 		{
 			Name: "wasmtime-net-mac",
 			Inputs: []utils.Input{
-				{Image: "alpine:3.17", Architecture: utils.X86_64},
+				{Image: "alpine:3.17", Architecture: utils.X8664},
 				{Image: "riscv64/alpine:20221110", ConvertOpts: []string{"--target-arch=riscv64"}, Architecture: utils.RISCV64},
 			},
 			Prepare: func(t *testing.T, env utils.Env) {
@@ -249,8 +252,8 @@ ENTRYPOINT ["/httphello", "0.0.0.0:80"]
 			Want: utils.WantPromptWithWorkdir("/ # ",
 				func(workdir string) [][2]string {
 					return [][2]string{
-						[2]string{fmt.Sprintf("wget -q -O - http://%s:%d/\n", hostVirtIP, utils.ReadInt(t, filepath.Join(workdir, "httphello-port"))), "hello"},
-						[2]string{`/bin/sh -c 'ip a show eth0 | grep ether | sed -E "s/ +/ /g" | cut -f 3 -d " " | tr -d "\n"'` + "\n", utils.ReadString(t, filepath.Join(workdir, "mac"))},
+						{fmt.Sprintf("wget -q -O - http://%s:%d/\n", hostVirtIP, utils.ReadInt(t, filepath.Join(workdir, "httphello-port"))), "hello"},
+						{`/bin/sh -c 'ip a show eth0 | grep ether | sed -E "s/ +/ /g" | cut -f 3 -d " " | tr -d "\n"'` + "\n", utils.ReadString(t, filepath.Join(workdir, "mac"))},
 					}
 				},
 			),

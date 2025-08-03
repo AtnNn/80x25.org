@@ -17,11 +17,10 @@ import (
 	"github.com/containerd/containerd/images"
 	ctdnamespaces "github.com/containerd/containerd/namespaces"
 	ctdoci "github.com/containerd/containerd/oci"
-	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/platforms"
 	inittype "github.com/ktock/container2wasm/cmd/init/types"
+	"github.com/moby/sys/user"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	spec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/opencontainers/runc/libcontainer/user"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -41,6 +40,7 @@ func main() {
 		imageRootfsPath   = flag.String("rootfs-path", "/oci/rootfs", "path to rootfs used as overlayfs lowerdir of container rootfs")
 		noVmtouch         = flag.Bool("no-vmtouch", false, "do not perform vmtouch")
 		externalBundle    = flag.Bool("external-bundle", false, "provide bundle externally during runtime")
+		noBinfmt          = flag.Bool("no-binfmt", false, "do not install binfmt")
 	)
 	flag.Parse()
 	args := flag.Args()
@@ -64,7 +64,7 @@ func main() {
 		if err := os.WriteFile("image.json", cfgD, 0600); err != nil {
 			panic(err)
 		}
-		if err := createSpec(bytes.NewReader(cfgD), rootfs, *debug, *debugInit, *imageConfigPath, *runtimeConfigPath, *imageRootfsPath, *noVmtouch); err != nil {
+		if err := createSpec(bytes.NewReader(cfgD), rootfs, *debug, *debugInit, *imageConfigPath, *runtimeConfigPath, *imageRootfsPath, *noVmtouch, *noBinfmt); err != nil {
 			panic(err)
 		}
 	} else {
@@ -82,7 +82,7 @@ func main() {
 	}
 }
 
-func unpack(ctx context.Context, imgDir string, platform *spec.Platform, rootfs string) (io.Reader, error) {
+func unpack(ctx context.Context, imgDir string, platform *ocispec.Platform, rootfs string) (io.Reader, error) {
 	fmt.Println("Trying to unpack image as an OCI image")
 	if rootfs == "" {
 		return nil, fmt.Errorf("specify rootfs")
@@ -213,7 +213,7 @@ func isContainerManifest(manifest ocispec.Manifest) bool {
 	return true
 }
 
-func unpackDocker(ctx context.Context, imgDir string, platform *spec.Platform, rootfs string) (io.Reader, error) {
+func unpackDocker(ctx context.Context, imgDir string, platform *ocispec.Platform, rootfs string) (io.Reader, error) {
 	fmt.Println("Trying to unpack image as a docker image")
 	if rootfs == "" {
 		return nil, fmt.Errorf("specify rootfs")
@@ -275,11 +275,11 @@ func unpackDocker(ctx context.Context, imgDir string, platform *spec.Platform, r
 	return nil, fmt.Errorf("target config not found")
 }
 
-func createSpec(r io.Reader, rootfs string, debug bool, debugInit bool, imageConfigPath, runtimeConfigPath, imageRootfsPath string, noVmtouch bool) error {
+func createSpec(r io.Reader, rootfs string, debug bool, debugInit bool, imageConfigPath, runtimeConfigPath, imageRootfsPath string, noVmtouch bool, noBinfmt bool) error {
 	if rootfs == "" {
 		return fmt.Errorf("rootfs path must be specified")
 	}
-	var config spec.Image
+	var config ocispec.Image
 	if err := json.NewDecoder(r).Decode(&config); err != nil {
 		return err
 	}
@@ -288,8 +288,10 @@ func createSpec(r io.Reader, rootfs string, debug bool, debugInit bool, imageCon
 		return err
 	}
 	var binfmtArch string
-	if arch := config.Architecture; arch != "riscv64" && arch != "amd64" {
-		binfmtArch = arch
+	if !noBinfmt {
+		if arch := config.Architecture; arch != "riscv64" && arch != "amd64" {
+			binfmtArch = arch
+		}
 	}
 	bootConfig, err := generateBootConfig(debug, debugInit, imageConfigPath, runtimeConfigPath, imageRootfsPath, noVmtouch, binfmtArch, false)
 	if err != nil {
@@ -312,7 +314,7 @@ func createSpec(r io.Reader, rootfs string, debug bool, debugInit bool, imageCon
 	return nil
 }
 
-func generateSpec(config spec.Image, rootfs string) (_ *specs.Spec, err error) {
+func generateSpec(config ocispec.Image, rootfs string) (_ *specs.Spec, err error) {
 	ic := config.Config
 	ctdCtx := ctdnamespaces.WithNamespace(context.TODO(), "default")
 	p := "linux/riscv64"
@@ -322,6 +324,7 @@ func generateSpec(config spec.Image, rootfs string) (_ *specs.Spec, err error) {
 	s, err := ctdoci.GenerateSpecWithPlatform(ctdCtx, nil, p, &ctdcontainers.Container{},
 		ctdoci.WithHostNamespace(specs.NetworkNamespace),
 		ctdoci.WithoutRunMount,
+		ctdoci.WithDefaultPathEnv,
 		ctdoci.WithEnv(ic.Env),
 		ctdoci.WithTTY,           // TODO: make it configurable
 		ctdoci.WithNewPrivileges, // TODO: make it configurable
@@ -386,7 +389,7 @@ func generateBootConfig(debug, debugInit bool, imageConfigPath, runtimeConfigPat
 	var cmdPreRun [][]string
 	if !noVmtouch {
 		cmdPreRun = [][]string{
-			[]string{"vmtouch", "-tv", "/sbin/runc", "/sbin/init"},
+			{"vmtouch", "-tv", "/sbin/runc", "/sbin/init"},
 		}
 	}
 	bootConfig := &inittype.BootConfig{

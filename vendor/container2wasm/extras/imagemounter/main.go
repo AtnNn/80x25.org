@@ -3,7 +3,6 @@ package main
 import (
 	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"crypto"
 	"crypto/ecdsa"
@@ -37,10 +36,10 @@ import (
 	ctdcontainers "github.com/containerd/containerd/containers"
 	ctdnamespaces "github.com/containerd/containerd/namespaces"
 	ctdoci "github.com/containerd/containerd/oci"
-	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/reference"
 	"github.com/containerd/containerd/remotes"
 	"github.com/containerd/containerd/remotes/docker"
+	"github.com/containerd/platforms"
 	esgzcache "github.com/containerd/stargz-snapshotter/cache"
 	"github.com/containerd/stargz-snapshotter/estargz"
 	esgzconfig "github.com/containerd/stargz-snapshotter/fs/config"
@@ -56,9 +55,9 @@ import (
 	p9staticfs "github.com/hugelgupf/p9/fsimpl/staticfs"
 	"github.com/hugelgupf/p9/fsimpl/templatefs"
 	"github.com/hugelgupf/p9/p9"
+	"github.com/moby/sys/user"
 	digest "github.com/opencontainers/go-digest"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/opencontainers/runc/libcontainer/user"
 	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -280,8 +279,8 @@ func doHttpRoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("failed to send request")
 	}
 
+	var buf []byte = make([]byte, 1048576)
 	var isEOF uint32
-	var reqBodyD []byte = make([]byte, 1048576)
 	var nwritten uint32 = 0
 	idx := 0
 	chunksize := 0
@@ -292,7 +291,7 @@ func doHttpRoundTrip(req *http.Request) (*http.Response, error) {
 	for {
 		if idx >= chunksize {
 			// chunk is fully written. full another one.
-			chunksize, err = bodyR.Read(reqBodyD)
+			chunksize, err = bodyR.Read(buf)
 			if err != nil && err != io.EOF {
 				return nil, err
 			}
@@ -303,7 +302,7 @@ func doHttpRoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		res := http_writebody(
 			id,
-			uint32(uintptr(unsafe.Pointer(&[]byte(reqBodyD[idx:])[0]))),
+			uint32(uintptr(unsafe.Pointer(&[]byte(buf[idx:])[0]))),
 			uint32(chunksize),
 			uint32(uintptr(unsafe.Pointer(&nwritten))),
 			isEOF,
@@ -333,22 +332,21 @@ func doHttpRoundTrip(req *http.Request) (*http.Response, error) {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	var respD []byte = make([]byte, 1048576)
 	var respsize uint32
 	var respFull []byte
 	isEOF = 0
 	for {
 		res := http_recv(
 			id,
-			uint32(uintptr(unsafe.Pointer(&[]byte(respD)[0]))),
-			1048576,
+			uint32(uintptr(unsafe.Pointer(&[]byte(buf)[0]))),
+			uint32(len(buf)),
 			uint32(uintptr(unsafe.Pointer(&respsize))),
 			uint32(uintptr(unsafe.Pointer(&isEOF))),
 		)
 		if res != 0 {
 			return nil, fmt.Errorf("failed to receive response")
 		}
-		respFull = append(respFull, respD[:int(respsize)]...)
+		respFull = append(respFull, buf[:int(respsize)]...)
 		if isEOF == 1 {
 			break
 		}
@@ -357,17 +355,17 @@ func doHttpRoundTrip(req *http.Request) (*http.Response, error) {
 	if err := json.Unmarshal(respFull, &resp); err != nil {
 		return nil, err
 	}
+	respFull = nil
 
 	isEOF = 0
 	pr, pw := io.Pipe()
 	go func() {
-		var body []byte = make([]byte, 1048576)
 		var bodysize uint32
 		for {
 			res := http_readbody(
 				id,
-				uint32(uintptr(unsafe.Pointer(&[]byte(body)[0]))),
-				1048576,
+				uint32(uintptr(unsafe.Pointer(&[]byte(buf)[0]))),
+				uint32(len(buf)),
 				uint32(uintptr(unsafe.Pointer(&bodysize))),
 				uint32(uintptr(unsafe.Pointer(&isEOF))),
 			)
@@ -376,7 +374,7 @@ func doHttpRoundTrip(req *http.Request) (*http.Response, error) {
 				return
 			}
 			if bodysize > 0 {
-				if _, err := pw.Write(body[:int(bodysize)]); err != nil {
+				if _, err := pw.Write(buf[:int(bodysize)]); err != nil {
 					pw.CloseWithError(err)
 					return
 				}
@@ -385,6 +383,7 @@ func doHttpRoundTrip(req *http.Request) (*http.Response, error) {
 				break
 			}
 		}
+		buf = nil
 		pw.Close()
 	}()
 	r := fetchResponseToHTTPResponse(req, &resp)
@@ -441,15 +440,19 @@ func main() {
 		logrus.SetLevel(logrus.FatalLevel)
 	}
 
-	if imageAddr == "" {
-		panic("specify image to mount")
-	}
-	imageserver, waitInit, err := NewImageServer(context.TODO(), imageAddr, imagespec.Platform{
-		Architecture: arch,
-		OS:           "linux",
-	})
-	if err != nil {
-		panic(err)
+	var (
+		imageServer *p9.Server
+		waitImageServerInit func()
+		err error
+	)
+	if imageAddr != "" {
+		imageServer, waitImageServerInit, err = NewImageServer(context.TODO(), imageAddr, imagespec.Platform{
+			Architecture: arch,
+			OS:           "linux",
+		})
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	ser, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 60))
@@ -559,19 +562,21 @@ func main() {
 		log.Println("serving proxy with https")
 		log.Fatal(server.ServeTLS(l, "", ""))
 	}()
-	go func() {
-		l, err := vn.Listen("tcp", p9IP+":80")
-		if err != nil {
-			panic(err)
-		}
-		if err != nil {
-			panic(err)
-		}
-		if waitInit != nil {
-			waitInit()
-		}
-		log.Fatal(imageserver.Serve(l))
-	}()
+	if imageAddr != "" {
+		go func() {
+			l, err := vn.Listen("tcp", p9IP+":80")
+			if err != nil {
+				panic(err)
+			}
+			if err != nil {
+				panic(err)
+			}
+			if waitImageServerInit != nil {
+				waitImageServerInit()
+			}
+			log.Fatal(imageServer.Serve(l))
+		}()
+	}
 	ql, err := findListener(listenFd)
 	if err != nil {
 		panic(err)
@@ -732,7 +737,6 @@ func fsFromImage(ctx context.Context, addr string, platform imagespec.Platform, 
 		}, nil, map[string]esgzremote.Handler{
 			"url-reader": &layerOCILayoutURLHandler{addr},
 		}, reference.Spec{}, newLayerOCILayoutExternalReaderAt(addr))
-		// }, reference.Spec{}, newLayerOCILayoutURLReader(addr))
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
@@ -760,16 +764,44 @@ func fsFromImage(ctx context.Context, addr string, platform imagespec.Platform, 
 			defer r.Close()
 			if withDecompression {
 				raw := r
-				zr, err := gzip.NewReader(raw)
+				zr, err := newWasmDecompressor(raw)
 				if err != nil {
 					return nil, err
 				}
-				defer zr.Close()
-				r = zr
+				r = &readerWithCloser{zr, func() error {
+					return raw.Close()
+				}}
 			}
-			data, err := io.ReadAll(r)
-			if err != nil {
-				return nil, err
+
+			var rs [][]byte
+			var curoff int
+			var chunkSize = 10 * 1024 * 1024
+			b := make([]byte, chunkSize)
+			for {
+				n, err := r.Read(b[curoff:])
+				curoff += n
+				if err != nil {
+					if err == io.EOF {
+						rs = append(rs, b[:curoff])
+						break
+					}
+					return nil, err
+				}
+				if curoff == len(b) {
+					rs = append(rs, b)
+					curoff = 0
+					b = make([]byte, chunkSize)
+				}
+			}
+			r.Close()
+			var totalLen int
+			for _, s := range rs {
+				totalLen += len(s)
+			}
+			data := make([]byte, totalLen)
+			var i int
+			for _, s := range rs {
+				i += copy(data[i:], s)
 			}
 			return io.NewSectionReader(bytes.NewReader(data), 0, int64(len(data))), nil
 		})
@@ -784,6 +816,7 @@ func fsFromImage(ctx context.Context, addr string, platform imagespec.Platform, 
 			return nil, nil, nil, nil, err
 		}
 	}
+	imgFS.addDots()
 	return &config, imgFS.n, configData, waitInit, nil
 }
 
@@ -887,8 +920,8 @@ func fetchManifestAndConfigOCILayout(ctx context.Context, addr string, platform 
 	return manifest, config, configD, nil
 }
 
-func fetchLayers(ctx context.Context, manifest imagespec.Manifest, config EStargzLayerConfig, hosts esgzsource.RegistryHosts, handlers map[string]esgzremote.Handler, refspec reference.Spec, unlazyReader func(imagespec.Descriptor, bool) (io.ReaderAt, error)) ([]NodeLayer, func(), error) {
-	layers, waitInit, err := getEStargzLayers(ctx, manifest, config, hosts, handlers, refspec)
+func fetchLayers(ctx context.Context, manifest imagespec.Manifest, config EStargzLayerConfig, hosts esgzsource.RegistryHosts, handlers map[string]esgzremote.Handler, refspec reference.Spec, unlazyReader func(imagespec.Descriptor, bool) (io.ReaderAt, error)) (layers []NodeLayer, waitInit func(), err error) {
+	layers, waitInit, err = getEStargzLayers(ctx, manifest, config, hosts, handlers, refspec)
 	if err == nil {
 		return layers, waitInit, nil
 	}
@@ -962,6 +995,14 @@ func newTarNode(q *qidSet, trRaw io.ReaderAt) (*NodeLayer, error) {
 		return c, nil
 	}
 
+	getnode := func(n *Node, base string) (c *Node, err error) {
+		var ok bool
+		if c, ok = n.children[base]; !ok {
+			return nil, fmt.Errorf("Node %q not found", base)
+		}
+		return c, nil
+	}
+
 	var whiteouts []string
 	var opaqueWhiteouts []string
 
@@ -1013,6 +1054,19 @@ func newTarNode(q *qidSet, trRaw io.ReaderAt) (*NodeLayer, error) {
 			} else {
 				whiteouts = append(whiteouts, fullname)
 			}
+		case h.Typeflag == tar.TypeLink:
+			if h.Linkname == "" {
+				return nil, fmt.Errorf("Linkname of hardlink %q is not found", fullname)
+			}
+			// This node is a hardlink. Same as major tar tools(GNU tar etc.),
+			// we pretend that the target node of this hard link has already been appeared.
+			target, err := walkDown(n, filepath.Clean(h.Linkname), getnode)
+			if err != nil {
+				return nil, fmt.Errorf("hardlink(%q ==> %q) is not found: %w",
+					fullname, h.Linkname, err)
+			}
+			target.attr.NLink++
+			parentDir.children[base] = target
 		default:
 			// Normal node so simply create it.
 			if parentDir.children == nil {
@@ -1094,7 +1148,9 @@ func getEStargzLayers(ctx context.Context, manifest imagespec.Manifest, config E
 					tm.DoPrioritizedTask()
 					defer tm.DonePrioritizedTask()
 					return b.ReadAt(p, offset)
-				}), 0, b.Size()))
+				}), 0, b.Size()),
+				esgzmetadata.WithDecompressors(newGzipDecompressor()),
+			)
 			if err != nil {
 				return err
 			}
@@ -1778,26 +1834,31 @@ func (a *applier) ApplyNodes(nodes NodeLayer) error {
 		if _, err := walkDown(a.n, filepath.Join(dir, base[len(whiteoutPrefix):]), getnode); err == nil {
 			p, err := walkDown(a.n, dir, getnode)
 			if err != nil {
-				return fmt.Errorf("parent node of whiteout %q is not found: %w", w, err)
+				log.Printf("parent node of whiteout %q is not found: %v\n", w, err)
+			} else {
+				delete(p.children, base)
 			}
-			delete(p.children, base)
 		}
 	}
 	for _, w := range nodes.opaqueWhiteouts {
 		dir, _ := filepath.Split(w)
 		p, err := walkDown(a.n, dir, getnode)
 		if err != nil {
-			return fmt.Errorf("parent node of whiteout %q is not found: %w", w, err)
+			log.Printf("parent node of opaque whiteout %q is not found: %v\n", w, err)
+		} else {
+			p.children = nil
 		}
-		p.children = nil
 	}
 	var err error
 	a.n, err = mergeNode(a.n, nodes.node)
 	if err != nil {
 		return err
 	}
-	a.n = addDots(a.n, nil)
 	return nil
+}
+
+func (a *applier) addDots() {
+	addDots(a.n, nil)
 }
 
 type qidSet struct {
@@ -1855,18 +1916,22 @@ func addDots(a *Node, parent *Node) *Node {
 		if a.children == nil {
 			a.children = make(map[string]*Node)
 		}
-		a.children["."] = a
-		if parent != nil {
-			a.children[".."] = parent
-		} else {
-			a.children[".."] = a
+		if _, ok := a.children["."]; !ok {
+			a.attr.NLink++
+			a.children["."] = a
+		}
+		if _, ok := a.children[".."]; !ok {
+			if parent != nil {
+				parent.attr.NLink++
+				a.children[".."] = parent
+			}
 		}
 	}
 	for name, c := range a.children {
 		if name == "." || name == ".." {
 			continue
 		}
-		a.children[name] = addDots(c, a)
+		addDots(c, a)
 	}
 	return a
 }
@@ -1951,7 +2016,7 @@ func metadataToAttr(m esgzmetadata.Attr) (p9.Attr, p9.QID) {
 	out.Mode = p9.ModeFromOS(m.Mode)
 	out.UID = p9.UID(m.UID)
 	out.GID = p9.GID(m.GID)
-	// out.NLink TOOD
+	out.NLink = 1
 	out.RDev = p9.Dev(mkdev(uint32(m.DevMajor), uint32(m.DevMinor)))
 	out.Size = uint64(m.Size)
 	out.BlockSize = uint64(p9DefaultBlockSize)
@@ -2277,7 +2342,7 @@ func headerToAttr(h *tar.Header) (p9.Attr, p9.QID) {
 	out.Mode = p9.ModeFromOS(h.FileInfo().Mode())
 	out.UID = p9.UID(h.Uid)
 	out.GID = p9.GID(h.Gid)
-	// out.NLink TOOD
+	out.NLink = 1
 	out.RDev = p9.Dev(mkdev(uint32(h.Devmajor), uint32(h.Devminor)))
 	out.Size = uint64(h.Size)
 	out.BlockSize = uint64(p9DefaultBlockSize)
@@ -2300,4 +2365,95 @@ func headerToAttr(h *tar.Header) (p9.Attr, p9.QID) {
 		q.Type = p9.ModeFromOS(h.FileInfo().Mode()).QIDType()
 	}
 	return out, q
+}
+
+//go:wasmimport env decompress_init
+func decompress_init(idP uint32) uint32
+
+//go:wasmimport env decompress_write
+func decompress_write(id uint32, bufP uint32, buflen uint32, isEOF uint32) uint32
+
+//go:wasmimport env decompress_read
+func decompress_read(id uint32, bufP uint32, buflen uint32, recvLenP uint32, isEOFP uint32) uint32
+
+type wasmDecompressor struct {
+	id     uint32
+	raw    io.Reader
+	rawEOF bool
+}
+
+func newWasmDecompressor(r io.Reader) (io.Reader, error) {
+	var id uint32
+	res := decompress_init(uint32(uintptr(unsafe.Pointer(&id))))
+	if res != 0 {
+		return nil, fmt.Errorf("failed to init decompressor")
+	}
+	return &wasmDecompressor{id: id, raw: r}, nil
+}
+
+func (d *wasmDecompressor) Read(p []byte) (n int, _ error) {
+	if !d.rawEOF {
+		n, err := d.raw.Read(p)
+		if err != nil && err != io.EOF {
+			return n, err
+		}
+		var isEOF = uint32(0)
+		if err == io.EOF {
+			isEOF = 1
+			d.rawEOF = true
+		}
+		res := decompress_write(d.id,
+			uint32(uintptr(unsafe.Pointer(&[]byte(p)[0]))),
+			uint32(n),
+			isEOF,
+		)
+		if res != 0 {
+			return 0, fmt.Errorf("failed to write compressed data")
+		}
+	}
+	var recvLen uint32
+	var isEOF = uint32(0)
+	res := decompress_read(d.id,
+		uint32(uintptr(unsafe.Pointer(&[]byte(p)[0]))),
+		uint32(len(p)),
+		uint32(uintptr(unsafe.Pointer(&recvLen))),
+		uint32(uintptr(unsafe.Pointer(&isEOF))),
+	)
+	if res != 0 {
+		return 0, fmt.Errorf("failed to read compressed data")
+	}
+	var err error
+	if isEOF == 1 {
+		err = io.EOF
+	}
+	return int(recvLen), err
+}
+
+type gzipDecompressor struct {
+	*estargz.GzipDecompressor
+}
+
+func newGzipDecompressor() *gzipDecompressor {
+	return &gzipDecompressor{&estargz.GzipDecompressor{}}
+}
+
+func (gz *gzipDecompressor) Reader(r io.Reader) (io.ReadCloser, error) {
+	zr, err := newWasmDecompressor(r)
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(zr), nil
+}
+
+type readerWithCloser struct {
+	r         io.Reader
+	closeFunc func() error
+}
+
+func (r *readerWithCloser) Read(p []byte) (int, error) {
+	return r.r.Read(p)
+}
+
+func (r *readerWithCloser) Close() error {
+	return r.closeFunc()
 }

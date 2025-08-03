@@ -1,5 +1,5 @@
 import { Event, EventType, Subscription, SubscriptionClock, SubscriptionFdReadWrite, SubscriptionU, wasiHackSocket } from './wasi-util';
-import { WASI, PreopenDirectory } from "@bjorn3/browser_wasi_shim";
+import { WASI, PreopenDirectory, File } from "@bjorn3/browser_wasi_shim";
 import * as wasitype from "@bjorn3/browser_wasi_shim";
 
 export function startContainer(info, cargs, ttyClient) {
@@ -14,29 +14,27 @@ export function startContainer(info, cargs, ttyClient) {
         resp['blob']().then((blob) => {
             const ds = new DecompressionStream("gzip")
             new Response(blob.stream().pipeThrough(ds))['arrayBuffer']().then((wasm) => {
-                recvCert().then((cert) => {
-                    var certDir = getCertDir(cert);
-                    fds = [
-                        undefined, // 0: stdin
-                        undefined, // 1: stdout
-                        undefined, // 2: stderr
-                        certDir,   // 3: certificates dir
-                        undefined, // 4: socket listenfd
-                        undefined, // 5: accepted socket fd (multi-connection is unsupported)
-                        // 6...: used by wasi shim
-                    ];
-                    args = ['arg0', '--net=socket=listenfd=4', '--mac', genmac(), '--external-bundle=9p=192.168.127.252'];
-                    args = args.concat(cargs);
-                    env = [
-                        "SSL_CERT_FILE=/.wasmenv/proxy.crt",
-                        "https_proxy=http://192.168.127.253:80",
-                        "http_proxy=http://192.168.127.253:80",
-                        "HTTPS_PROXY=http://192.168.127.253:80",
-                        "HTTP_PROXY=http://192.168.127.253:80"
-                    ];
-                    listenfd = 4;
-                    startWasi(wasm, ttyClient, args, env, fds, listenfd, 5);
-                });
+                var certDir = getCertDir(info.cert);
+                fds = [
+                    undefined, // 0: stdin
+                    undefined, // 1: stdout
+                    undefined, // 2: stderr
+                    certDir,   // 3: certificates dir
+                    undefined, // 4: socket listenfd
+                    undefined, // 5: accepted socket fd (multi-connection is unsupported)
+                    // 6...: used by wasi shim
+                ];
+                args = ['arg0', '--net=socket=listenfd=4', '--mac', genmac(), '--external-bundle=9p=192.168.127.252'];
+                args = args.concat(cargs);
+                env = [
+                    "SSL_CERT_FILE=/.wasmenv/proxy.crt",
+                    "https_proxy=http://192.168.127.253:80",
+                    "http_proxy=http://192.168.127.253:80",
+                    "HTTPS_PROXY=http://192.168.127.253:80",
+                    "HTTP_PROXY=http://192.168.127.253:80"
+                ];
+                listenfd = 4;
+                startWasi(wasm, ttyClient, args, env, fds, listenfd, 5);
                 return;
             })
         })
@@ -370,41 +368,6 @@ function sockWaitForReadable(){
     return ready;
 }
 
-function recvCert(){
-    var buf = new Uint8Array(0);
-    return new Promise((resolve, reject) => {
-        function getCert(){
-            var done = false;
-            for(;;) {
-                if (Atomics.compareExchange(metaFromNetCtrl, 0, 0, 1) == 0) {
-                    break;
-                }
-                Atomics.wait(metaFromNetCtrl, 0, 1);
-            }
-            let end = metaFromNetEnd[0]; //exclusive
-            if (end > 0) {
-                buf = appendData(buf, metaFromNetData.slice(0, end));
-                metaFromNetEnd[0] = 0;
-            }
-            if (metaFromNetStatus[0] == 1) {
-                done = true;
-            }
-            if (Atomics.compareExchange(metaFromNetCtrl, 0, 1, 0) != 1) {
-                console.log("UNEXPECTED STATUS");
-            }
-            Atomics.notify(metaFromNetCtrl, 0, 1);
-
-            if (done) {
-                resolve(buf); // EOF
-            } else {
-                setTimeout(getCert, 0);
-                return;
-            }
-        }
-        getCert();
-    });
-}
-
 function appendData(data1, data2) {
     var buf2 = new Uint8Array(data1.byteLength + data2.byteLength);
     buf2.set(new Uint8Array(data1), 0);
@@ -423,12 +386,12 @@ function getCertDir(cert) {
             var o = ret.fd_obj;
             ret.fd_obj.fd_pread = (view8, iovs, offset) => {
                 var old_offset = o.file_pos;
-                var r = o.fd_seek(offset, WHENCE_SET);
+                var r = o.fd_seek(offset, wasitype.wasi.WHENCE_SET);
                 if (r.ret != 0) {
                     return { ret: -1, nread: 0 };
                 }
                 var read_ret = o.fd_read(view8, iovs);
-                r = o.fd_seek(old_offset, WHENCE_SET);
+                r = o.fd_seek(old_offset, wasitype.wasi.WHENCE_SET);
                 if (r.ret != 0) {
                     return { ret: -1, nread: 0 };
                 }

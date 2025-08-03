@@ -29,40 +29,58 @@ As of now, the following image server is supported:
 
 ## Examples
 
-First, build basic dependencies:
+### Starting a server
+
+First, start a page that runs the container:
+
+#### WASI-on-browser approach
+
+Refer to [`../../examples/wasi-browser/`](../../examples/wasi-browser/) for differences between this approach and emscripten approach.
 
 ```console
 $ mkdir /tmp/outx/
 $ c2w --external-bundle /tmp/outx/out.wasm
-$ make imagemounter.wasm
-```
-
-> container2wasm >= 0.6.0 is needed.
-
-### Example on browser + HTTP Server
-
-The following pulls `ubuntu:22.04` stored at https://ktock.github.io/ubuntu-oci-images/ubuntu-22.04-org-amd64 as [OCI Image Layout](https://github.com/opencontainers/image-spec/blob/v1.0.2/image-layout.md) and runs it on Wasm.
-
-```console
-$ cd ./extras/imagemounter
 $ mkdir -p /tmp/out-js3/
-$ cp -R ./../../examples/no-conversion/* /tmp/out-js3/
-$ ( cd ../runcontainerjs && npx webpack && cp -R ./dist /tmp/out-js3/htdocs/ )
-$ cat ../../out/imagemounter.wasm | gzip >  /tmp/out-js3/htdocs/imagemounter.wasm.gzip
+$ cp -R ./examples/no-conversion-wasi-browser/* /tmp/out-js3/
 $ cat /tmp/outx/out.wasm | gzip >  /tmp/out-js3/htdocs/out.wasm.gzip
+$ make imagemounter.wasm
+$ cat ./out/imagemounter.wasm | gzip >  /tmp/out-js3/htdocs/imagemounter.wasm.gzip
+$ ( cd ./extras/runcontainerjs && npx webpack && cp -R ./dist /tmp/out-js3/htdocs/ )
 $ docker run --rm -p 127.0.0.1:8083:80 \
          -v "/tmp/out-js3/htdocs:/usr/local/apache2/htdocs/:ro" \
          -v "/tmp/out-js3/xterm-pty.conf:/usr/local/apache2/conf/extra/xterm-pty.conf:ro" \
          --entrypoint=/bin/sh httpd -c 'echo "Include conf/extra/xterm-pty.conf" >> /usr/local/apache2/conf/httpd.conf && httpd-foreground'
 ```
 
-Then access to: `localhost:8083?image=https://ktock.github.io/ubuntu-oci-images/ubuntu-22.04-org-amd64`
+#### emscripten approach (`--to-js` flag)
+
+Refer to [`../../examples/emscripten/`](../../examples/emscripten/) for the basics about `--to-js` flag.
+
+```console
+$ mkdir -p /tmp/outx/img
+$ c2w --to-js --external-bundle /tmp/outx/img/
+$ mkdir -p /tmp/out-js3/
+$ cp -R ./examples/no-conversion-emscripten/* /tmp/out-js3/
+$ mv /tmp/outx/img /tmp/out-js3/htdocs/img
+$ make imagemounter.wasm
+$ cat ./out/imagemounter.wasm | gzip >  /tmp/out-js3/htdocs/imagemounter.wasm.gzip
+$ ( cd ./extras/runcontainerjs && npx webpack && cp -R ./dist /tmp/out-js3/htdocs/ )
+$ docker run --rm -p 127.0.0.1:8083:80 \
+         -v "/tmp/out-js3/htdocs:/usr/local/apache2/htdocs/:ro" \
+         -v "/tmp/out-js3/xterm-pty.conf:/usr/local/apache2/conf/extra/xterm-pty.conf:ro" \
+         --entrypoint=/bin/sh httpd -c 'echo "Include conf/extra/xterm-pty.conf" >> /usr/local/apache2/conf/httpd.conf && httpd-foreground'
+```
+
+### Example on browser + HTTP Server
+
+The server started above can pull an image from HTTP server and run this by specifying it using the query parameter.
+For example, you can access to `localhost:8083?image=https://ktock.github.io/ubuntu-oci-images/ubuntu-22.04-org-amd64` which pulls `ubuntu:22.04` stored at https://ktock.github.io/ubuntu-oci-images/ubuntu-22.04-org-amd64 as [OCI Image Layout](https://github.com/opencontainers/image-spec/blob/v1.0.2/image-layout.md) and runs it on Wasm.
 
 ### Example on browser + Registry
 
 > Note: As described in the above, registry authentication is unsupported as of now so you can't use public registry services. You can try this features using local registry like the following. This limitations is expected to be fixed in the future.
 
-First, launch a registry with enabling CORS.
+Launch a registry with enabling CORS.
 
 ```console
 $ mkdir /tmp/regconfig
@@ -86,24 +104,9 @@ $ docker push localhost:5000/ubuntu:22.04
 ```
 
 The above registry serves `localhost:5000/ubuntu:22.04` container image.
+When you access to `localhost:8083?image=localhost:5000/ubuntu:22.04` (the server started in the previous section), that page fetches `localhost:5000/ubuntu:22.04` container image from the local registry and launches it on browser.
 
-The following serves a page to run that image.
-When you access to `localhost:8083?image=localhost:5000/ubuntu:22.04`, that page fetches `localhost:5000/ubuntu:22.04` container image from the local registry and launches it on browser.
-
-```console
-$ cd ./extras/imagemounter
-$ mkdir -p /tmp/out-js3/
-$ cp -R ./../../examples/no-conversion/* /tmp/out-js3/
-$ ( cd ../runcontainerjs && npx webpack && cp -R ./dist /tmp/out-js3/htdocs/ )
-$ cat ../../out/imagemounter.wasm | gzip >  /tmp/out-js3/htdocs/imagemounter.wasm.gzip
-$ cat /tmp/outx/out.wasm | gzip >  /tmp/out-js3/htdocs/out.wasm.gzip
-$ docker run --rm -p 127.0.0.1:8083:80 \
-         -v "/tmp/out-js3/htdocs:/usr/local/apache2/htdocs/:ro" \
-         -v "/tmp/out-js3/xterm-pty.conf:/usr/local/apache2/conf/extra/xterm-pty.conf:ro" \
-         --entrypoint=/bin/sh httpd -c 'echo "Include conf/extra/xterm-pty.conf" >> /usr/local/apache2/conf/httpd.conf && httpd-foreground'
-```
-
-### Example on CLI + HTTP Server
+### Example on CLI + HTTP Server (WASI only)
 
 Demo CLI is used for pulling and running the container image.
 
@@ -112,6 +115,7 @@ $ ( cd ./tests/imagemounter-test/ ; go build -o ../../out/imagemounter-test . )
 ```
 
 The following pulls ubuntu:22.04 stored at https://ktock.github.io/ubuntu-oci-images/ubuntu-22.04-org-amd64 as [OCI Image Layout](https://github.com/opencontainers/image-spec/blob/v1.0.2/image-layout.md) and runs it on Wasm.
+`/tmp/outx/out.wasm` is the WASI image that contains linux, etc. created in the previous section.
 
 ```console
 $ ./out/imagemounter-test \
@@ -120,7 +124,7 @@ $ ./out/imagemounter-test \
   /tmp/outx/out.wasm --net=socket=listenfd=4 --external-bundle=9p=192.168.127.252
 ```
 
-### Example on CLI + Registry
+### Example on CLI + Registry (WASI only)
 
 > Note: As described in the above, registry authentication is unsupported as of now so you can't use public registry services. You can try this features using local registry like the following. This limitations is expected to be fixed in the future.
 
@@ -140,12 +144,13 @@ $ docker push localhost:5000/ubuntu:22.04
 ```
 
 The following pulls `localhost:5000/ubuntu:22.04` container image and runs it on Wasm.
+`/tmp/outx/out.wasm` is the WASI image that contains linux, etc. created in the previous section.
 
 ```console
 $ ./out/imagemounter-test \
   --image localhost:5000/ubuntu:22.04 \
   --stack ./out/imagemounter.wasm \
-  /tmp/out.wasm --net=socket=listenfd=4 --external-bundle=9p=192.168.127.252
+  /tmp/outx/out.wasm --net=socket=listenfd=4 --external-bundle=9p=192.168.127.252
 ```
 
 ## How to get container image formatted as OCI Image Layout
@@ -159,4 +164,46 @@ $ IMAGE=ubuntu:22.04
 $ mkdir /tmp/imageout/
 $ docker buildx create --name container --driver=docker-container
 $ echo "FROM $IMAGE" | docker buildx build --builder=container --output type=oci,dest=- - | tar -C /tmp/imageout/ -xf -
+```
+
+## Lazy pulling of eStargz
+
+imagemounter also supports lazy pulling of eStargz image.
+
+Lazy pulling is a technique of pulling container images for shortening the latency of loading image.
+This allows the container to start before the entier image contents becoming locally available.
+Instead, necessary chunks of contents (e.g. files) are downloaded from the image server on-demand.
+
+eStargz is a OCI-compatible image format for lazy pulling.
+Please refer to [stargz-snapshotter](https://github.com/containerd/stargz-snapshotter) project for more details.
+
+eStargz image can be created using `docker buildx` command with BuildKit >= v0.10.
+Specify `compression=estargz` option.
+
+> NOTE: eStargz-based lazy pulling is also possible from container registries not only from HTTP(S) server.
+
+```console
+$ IMAGE=gcc:13.2
+$ mkdir /tmp/gcc-13.2-org/ /tmp/gcc-13.2-esgz/
+$ docker buildx create --name container --driver=docker-container
+$ echo "FROM $IMAGE" | docker buildx build --builder=container --output type=oci,dest=- - | tar -C /tmp/gcc-13.2-org/ -xf -
+$ echo "FROM $IMAGE" | docker buildx build --builder=container --output type=oci,oci-mediatype=true,compression=estargz,force-compression=true,dest=- - | tar -C /tmp/gcc-13.2-esgz/ -xf -
+```
+
+The following runs the image on browser.
+The above eStargz image is located at `http://localhost:8084/gcc-13.2-esgz/`, legacy(non-eStargz) image is located at `http://localhost:8084/gcc-13.2-org/`.
+That image can run on browser via `http://localhost:8084/?image=http://localhost:8084/gcc-13.2-esgz/` that fetches the container image into the browser with lazy pulling and launches it.
+
+```console
+$ mkdir -p /tmp/out-js4/
+$ cp -R ./examples/no-conversion-wasi-browser/* /tmp/out-js4/
+$ cp -R /tmp/gcc-13.2-org /tmp/out-js4/htdocs/
+$ cp -R /tmp/gcc-13.2-esgz /tmp/out-js4/htdocs/
+$ make imagemounter.wasm && cat ./out/imagemounter.wasm | gzip >  /tmp/out-js4/htdocs/imagemounter.wasm.gzip
+$ cat out.wasm | gzip >  /tmp/out-js4/htdocs/out.wasm.gzip
+$ ( cd extras/runcontainerjs ; npx webpack && cp -R ./dist /tmp/out-js4/htdocs/ )
+$ docker run --rm -p 127.0.0.1:8084:80 \
+         -v "/tmp/out-js4/htdocs:/usr/local/apache2/htdocs/:ro" \
+         -v "/tmp/out-js4/xterm-pty.conf:/usr/local/apache2/conf/extra/xterm-pty.conf:ro" \
+         --entrypoint=/bin/sh httpd -c 'echo "Include conf/extra/xterm-pty.conf" >> /usr/local/apache2/conf/httpd.conf && httpd-foreground'
 ```

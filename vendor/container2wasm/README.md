@@ -5,12 +5,15 @@
 
 # container2wasm: Container to WASM converter
 
+[![test workflow](https://github.com/container2wasm/container2wasm/actions/workflows/tests.yml/badge.svg)](https://github.com/container2wasm/container2wasm/actions/workflows/tests.yml?query=branch%3Amain++)
+[![FOSSA Status](https://app.fossa.com/api/projects/custom%2B162%2Fgithub.com%2Fcontainer2wasm%2Fcontainer2wasm.svg?type=shield&issueType=license)](https://app.fossa.com/projects/custom%2B162%2Fgithub.com%2Fcontainer2wasm%2Fcontainer2wasm?ref=badge_shield&issueType=license)
+
 container2wasm is a container-to-wasm image converter that enables to run the container on WASM.
 
-- Converts a container to WASM with emulation by Bochs (for x86_64 containers) and TinyEMU (for riscv64 containers).
+- Converts a container to WASM with emulation by Bochs (for x86_64 containers), TinyEMU (for riscv64 containers) and QEMU.
 - Runs on WASI runtimes (e.g. wasmtime, wamr, wasmer, wasmedge, wazero)
 - Runs on browser
-- x86_64 or riscv64 containers are recommended. Other platforms (e.g. arm64) also work (but slow).
+- x86_64, riscv64 or AArch64 containers are recommended.
 
 This is an experimental software.
 
@@ -57,13 +60,11 @@ hi
 You can run the container on browser as well.
 There are two methods for running the container on browser.
 
-> Please also refer to [`./examples/wasi-browser`](./examples/wasi-browser/) (WASI-on-browser example) and [`./examples/emscripten`](./examples/emscripten/) (emscripten example).
-
-> Please refer to [`./examples/networking/`](./examples/networking/) for details about enabling networking.
-
 #### WASI on browser
 
 This example converts the container to WASI and runs it on browser.
+
+> Please also refer to [`./examples/wasi-browser`](./examples/wasi-browser/) for details.
 
 The following command generates a WASI image.
 
@@ -119,36 +120,45 @@ You can run the container on browser with several types of configurations:
 - `localhost:8080/?net=delegate=ws://localhost:8888`: Container with networking. You need to run [user-space network stack `c2w-net`](./cmd/c2w-net/) implemented based on [`gvisor-tap-vsock`](https://github.com/containers/gvisor-tap-vsock) on the host (outside of browser). It forwards all packets received from the browser over WebSocket. See also [`./examples/networking/websocket`](./examples/networking/websocket/) for detalis and configuration. (tested only on Linux)
 - `localhost:8080`: Container without networking.
 
+> Please also refer to [`./examples/networking/`](./examples/networking/) for details about networking.
+
 #### emscripten on browser
 
 This example uses emscripten for converting the container to WASM.
-
-- pros: WASM image size can be smaller than WASI.
-- cons: WASI-specific optimization like [Wizer](https://github.com/bytecodealliance/wizer/) pre-initialization isn't available for this mode. So the startup of the container can be slow (For x86_64 containers it might take >= 30s. For riscv64 containers it might take >= 10s).
+This leverages [QEMU Wasm](https://github.com/ktock/qemu-wasm) which is QEMU ported to browser with JIT compilation (TCG) enabled.
+Also refer to [`./examples/emscripten/`](./examples/emscripten/) for detalis.
 
 The following command generates a WASM image and a JS file runnable on browser.
 
 ```console
-$ c2w --to-js ubuntu:22.04 /tmp/out-js/htdocs/
+$ c2w --to-js alpine:3.20 /tmp/out-js/htdocs/
 ```
 
 The following is an example of running the image on browser relying on [xterm-pty](https://github.com/mame/xterm-pty).
 This example serves the image on `localhost:8080` using apache http server.
 
+> Or, you can also try a smaller example [`./emscripten-simple`](./examples/emscripten-simple/) without webpack dependencies.
+
 ```console
-$ cp -R ./examples/emscripten/* /tmp/out-js/ && chmod 755 /tmp/out-js/htdocs
-$ docker run --rm -p 8080:80 \
+$ ( cd ./examples/emscripten/htdocs/ && npx webpack && cp -R index.html dist vendor/xterm.css /tmp/out-js/htdocs/ )
+$ wget -O /tmp/c2w-net-proxy.wasm https://github.com/ktock/container2wasm/releases/download/v0.5.0/c2w-net-proxy.wasm
+$ cat /tmp/c2w-net-proxy.wasm | gzip > /tmp/out-js/htdocs/c2w-net-proxy.wasm.gzip
+$ cp ./examples/emscripten/xterm-pty.conf /tmp/out-js/
+$ docker run --rm -p 127.0.1:8080:80 \
          -v "/tmp/out-js/htdocs:/usr/local/apache2/htdocs/:ro" \
          -v "/tmp/out-js/xterm-pty.conf:/usr/local/apache2/conf/extra/xterm-pty.conf:ro" \
          --entrypoint=/bin/sh httpd -c 'echo "Include conf/extra/xterm-pty.conf" >> /usr/local/apache2/conf/httpd.conf && httpd-foreground'
 ```
 
-You can run the container on browser via `localhost:8080`.
+You can run the container on browser with several types of configurations:
 
-> NOTE: It can take some time to load and start the container.
+- `localhost:8080/?net=browser`: Container with networking. [Network stack `c2w-net-proxy`](./extras/c2w-net-proxy/) implemented based on [`gvisor-tap-vsock`](https://github.com/containers/gvisor-tap-vsock) runs on browser and forwards HTTP/HTTPS packets using the browser's Fetch API. The set of accesible sites is restricted by the browser configuration (e.g. CORS restriction). See also [`./examples/emscripten/`](./examples/emscripten/) for detalis.
+- `localhost:8080/?net=delegate=ws://localhost:8888`: Container with networking. You need to run [user-space network stack `c2w-net`](./cmd/c2w-net/) implemented based on [`gvisor-tap-vsock`](https://github.com/containers/gvisor-tap-vsock) on the host (outside of browser). It forwards all packets received from the browser over WebSocket. See also [`./examples/emscripten/`](./examples/emscripten/) for detalis and configuration. (tested only on Linux)
+- `localhost:8080`: Container without networking.
 
-Networking can also be enabled using the [user-space network stack `c2w-net`](./cmd/c2w-net/) implemented based on [`gvisor-tap-vsock`](https://github.com/containers/gvisor-tap-vsock) serving over WebSocket on the host (outside of browser).
-See also [`./examples/networking/websocket`](./examples/networking/websocket/) for detalis.
+![Container on browser](./docs/images/emscripten-qemu-alpine-net-browser.png)
+
+> Please also refer to [`./examples/networking/`](./examples/networking/) for details about networking.
 
 ## Getting Started
 
@@ -248,8 +258,8 @@ contaienr2wasm creates a WASM image that runs the container and the Linux kernel
 The following shows the techniqual details:
 
 - Builder: [BuildKit](https://github.com/moby/buildkit) runs the conversion steps written in Dockerfile.
-- Emulator: [Bochs](https://bochs.sourceforge.io/) emulates x86_64 CPU on WASM. [TinyEMU](https://bellard.org/tinyemu/) emulates RISC-V CPU on WASM. They're compiled to WASM using [wasi-sdk](https://github.com/WebAssembly/wasi-sdk) (for WASI and on-browser) and [emscripten](https://github.com/emscripten-core/emscripten) (for on-browser).
-- Guest OS: Linux runs on the emulated CPU. [runc](https://github.com/opencontainers/runc) starts the container. Non-x86 and non-RISC-V containers runs with additional emulation by QEMU installed via [`tonistiigi/binfmt`](https://github.com/tonistiigi/binfmt).
+- Emulator: [Bochs](https://bochs.sourceforge.io/) emulates x86_64 CPU on WASM. [TinyEMU](https://bellard.org/tinyemu/) emulates RISC-V CPU on WASM. For `--to-js` flag, QEMU ([QEMU Wasm](https://github.com/ktock/qemu-wasm)) is used. They're compiled to WASM using [wasi-sdk](https://github.com/WebAssembly/wasi-sdk) (for WASI and on-browser) and [emscripten](https://github.com/emscripten-core/emscripten) (for on-browser).
+- Guest OS: Linux runs on the emulated CPU. [runc](https://github.com/opencontainers/runc) starts the container. Non-x86_64 and non-RISC-V containers runs with additional emulation by QEMU installed via [`tonistiigi/binfmt`](https://github.com/tonistiigi/binfmt).
 - Directory Mapping: WASI filesystem API makes host directories visible to the emulator. Emulators mount them to the guest linux via virtio-9p.
 - Packaging: [wasi-vfs](https://github.com/kateinoigakukun/wasi-vfs) (for WASI and on-browser) and emscripten (for on-browser) are used for packaging the dependencies. The kernel is pre-booted during the build using [wizer](https://github.com/bytecodealliance/wizer/) to minimize the startup latency (for WASI only as of now).
 - Networking: Browser's Fetch API or WebSocket is used for on-browser image. `sock_*` API is used for WASI. [`gvisor-tap-vsock`](https://github.com/containers/gvisor-tap-vsock) can be used as the networking stack. (docs: [`./examples/networking/`](./examples/networking/))
@@ -315,11 +325,13 @@ Re-compilation (and possibe re-implementation) of the application is needed.
 
 ## Acknowledgement
 
-- container2wasi itself is licensed under Apache 2.0 but the generated WASM image will include third-pirty softwares:
+- Copyright © contributors to container2wasm, established as container2wasm a Series of LF Projects, LLC
+
+- container2wasm itself is licensed under [Apache 2.0](https://github.com/container2wasm/container2wasm/blob/main/LICENSE) but the generated WASM image will include third-party software:
   - Bochs ([GNU Lesser General Public License v2.1](https://github.com/bochs-emu/Bochs/blob/master/LICENSE)) https://bochs.sourceforge.io/
-    - Source code is contained in ([`./patches/bochs`](./patches/bochs)). Bochs is modified by our project for making it work with containers
+    - needs patches to make it work with containers: https://github.com/ktock/Bochs
   - TinyEMU ([MIT License](https://opensource.org/license/mit/)) https://bellard.org/tinyemu/
-    - Source code is contained in ([`./patches/tinyemu`](./patches/tinyemu)). TinyEMU is modified by our project for making it work with containers
+    - needs patches to make it work with containers: https://github.com/ktock/tinyemu-c2w
   - GRUB ([GNU General Public License Version 3](https://www.gnu.org/licenses/gpl.html)): https://www.gnu.org/software/grub/
   - BBL(riscv-pk) ([license](https://github.com/riscv-software-src/riscv-pk/blob/master/LICENSE)): https://github.com/riscv-software-src/riscv-pk
   - Linux ([GNU General Public License version 2](https://github.com/torvalds/linux/blob/master/COPYING)): https://github.com/torvalds/linux/
@@ -330,7 +342,7 @@ Re-compilation (and possibe re-implementation) of the application is needed.
   - vmtouch ([license](https://github.com/hoytech/vmtouch/blob/master/LICENSE)): https://github.com/hoytech/vmtouch
   - BusyBox ([GNU General Public License version 2](https://www.busybox.net/license.html)): https://git.busybox.net/busybox
 
-- On-browser example relies on the following softwares.
+- On-browser example relies on the following software:
   - xterm-pty ([MIT License](https://github.com/mame/xterm-pty/blob/main/LICENSE.txt)): https://github.com/mame/xterm-pty
   - `browser_wasi_shim` (either of [MIT License](https://github.com/bjorn3/browser_wasi_shim/blob/main/LICENSE-MIT) and [Apache License 2.0](https://github.com/bjorn3/browser_wasi_shim/blob/main/LICENSE-APACHE)): https://github.com/bjorn3/browser_wasi_shim
   - `gvisor-tap-vsock` ([Apache License 2.0](https://github.com/containers/gvisor-tap-vsock/blob/main/LICENSE)): https://github.com/containers/gvisor-tap-vsock

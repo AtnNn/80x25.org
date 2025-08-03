@@ -16,7 +16,7 @@ func TestWasmer(t *testing.T) {
 			Name:    "wasmer-hello",
 			Runtime: "wasmer",
 			Inputs: []utils.Input{
-				{Image: "alpine:3.17", Architecture: utils.X86_64},
+				{Image: "alpine:3.17", Architecture: utils.X8664},
 				{Image: "riscv64/alpine:20221110", ConvertOpts: []string{"--target-arch=riscv64"}, Architecture: utils.RISCV64},
 			},
 			Args: utils.StringFlags("--", "--no-stdin", "echo", "-n", "hello"), // wasmer requires "--" before flags we pass to the wasm program.
@@ -28,7 +28,7 @@ func TestWasmer(t *testing.T) {
 			Name:    "wasmer-mapdir",
 			Runtime: "wasmer",
 			Inputs: []utils.Input{
-				{Image: "alpine:3.17", Architecture: utils.X86_64},
+				{Image: "alpine:3.17", Architecture: utils.X8664},
 				{Image: "riscv64/alpine:20221110", ConvertOpts: []string{"--target-arch=riscv64"}, Architecture: utils.RISCV64},
 			},
 			Prepare: func(t *testing.T, env utils.Env) {
@@ -51,7 +51,7 @@ func TestWasmer(t *testing.T) {
 			Name:    "wasmer-env",
 			Runtime: "wasmer",
 			Inputs: []utils.Input{
-				{Image: "alpine:3.17", Architecture: utils.X86_64},
+				{Image: "alpine:3.17", Architecture: utils.X8664},
 				{Image: "riscv64/alpine:20221110", ConvertOpts: []string{"--target-arch=riscv64"}, Architecture: utils.RISCV64},
 			},
 			RuntimeOpts: utils.StringFlags("--env=AAA=hello", "--env=BBB=world"),

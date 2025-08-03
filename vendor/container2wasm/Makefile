@@ -7,6 +7,7 @@ REVISION=$(shell git rev-parse HEAD)$(shell if ! git diff --no-ext-diff --quiet 
 GO_EXTRA_LDFLAGS=-extldflags '-static'
 GO_LD_FLAGS=-ldflags '-s -w -X $(PKG)/version.Version=$(VERSION) -X $(PKG)/version.Revision=$(REVISION) $(GO_EXTRA_LDFLAGS)'
 GO_BUILDTAGS=-tags "osusergo netgo static_build"
+GO_MODULE_DIRS=$(shell find . -type f -name go.mod -exec dirname {} \;)
 
 all: c2w c2w-net
 
@@ -25,8 +26,13 @@ imagemounter.wasm:
 	cd extras/imagemounter ; GOOS=wasip1 GOARCH=wasm go build -o $(PREFIX)/imagemounter.wasm .
 
 install:
-	install -D -m 755 $(PREFIX)/c2w $(CMD_DESTDIR)/bin
-	install -D -m 755 $(PREFIX)/c2w-net $(CMD_DESTDIR)/bin
+	@if [ "$$(uname -s)" = "Darwin" ]; then \
+		install -m 755 $(PREFIX)/c2w $(CMD_DESTDIR)/bin; \
+		install -m 755 $(PREFIX)/c2w-net $(CMD_DESTDIR)/bin; \
+	else \
+		install -D -m 755 $(PREFIX)/c2w $(CMD_DESTDIR)/bin; \
+		install -D -m 755 $(PREFIX)/c2w-net $(CMD_DESTDIR)/bin; \
+	fi
 
 artifacts: clean
 	GOOS=linux GOARCH=amd64 make c2w c2w-net
@@ -42,6 +48,16 @@ test:
 
 benchmark:
 	./tests/bench.sh
+
+vendor:
+	$(foreach dir,$(GO_MODULE_DIRS),(cd $(dir) && go mod tidy) || exit 1;)
+
+validate-vendor:
+	$(eval TMPDIR := $(shell mktemp -d))
+	cp -R $(CURDIR) ${TMPDIR}
+	(cd ${TMPDIR}/container2wasm && make vendor)
+	diff -r -u -q $(CURDIR) ${TMPDIR}/container2wasm
+	rm -rf ${TMPDIR}
 
 clean:
 	rm -f $(CURDIR)/out/*

@@ -6,7 +6,7 @@
 [subrepo]
 	remote = https://github.com/container2wasm/container2wasm
 	branch = main
-	commit = ab6fad067f47171ccd1ef195319be13bfd6f1e6e
-	parent = ca1131ded563bc2e0ab1ac238ce2f263f08e748b
+	commit = 7c614d7d9f05caadcecdb39ead3efc862223af09
+	parent = 55edf1460bd2d2827f73b55677211563eb20cb80
 	method = merge
 	cmdver = 0.4.6

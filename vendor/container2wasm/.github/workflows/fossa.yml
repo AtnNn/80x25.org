@@ -1,0 +1,14 @@
+name: FOSSA
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  fossa-scan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: fossas/fossa-action@v1.7.0
+        with:
+          api-key: ${{secrets.FOSSA_API_KEY}}
