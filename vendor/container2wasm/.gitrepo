@@ -4,7 +4,7 @@
 ; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
 ;
 [subrepo]
-	remote = https://github.com/ktock/container2wasm
+	remote = https://github.com/container2wasm/container2wasm
 	branch = main
 	commit = ab6fad067f47171ccd1ef195319be13bfd6f1e6e
 	parent = ca1131ded563bc2e0ab1ac238ce2f263f08e748b
